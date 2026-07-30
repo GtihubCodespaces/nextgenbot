@@ -425,20 +425,131 @@ const server = http.createServer(async (req, res) => {
                     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
                     return res.end(`
                         <!DOCTYPE html>
-                        <html>
+                        <html lang="fr">
                         <head>
-                            <title>Vérification Réussie</title>
+                            <meta charset="UTF-8">
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                            <title>NextGen • Vérification Réussie</title>
+                            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
                             <style>
-                                body { background: #2B2D31; color: white; font-family: 'gg sans', Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-                                .card { background: #1E1F22; padding: 40px; border-radius: 12px; text-align: center; max-width: 380px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
-                                h1 { color: #57F287; margin-bottom: 12px; font-size: 22px; }
-                                p { color: #DBDEE1; font-size: 14px; line-height: 1.5; }
+                                * { box-sizing: border-box; margin: 0; padding: 0; }
+                                body {
+                                    background: #0E0F12;
+                                    color: #FFFFFF;
+                                    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+                                    display: flex;
+                                    justify-content: center;
+                                    align-items: center;
+                                    min-height: 100vh;
+                                    padding: 20px;
+                                    overflow: hidden;
+                                }
+                                .bg-glow {
+                                    position: absolute;
+                                    width: 450px;
+                                    height: 450px;
+                                    background: radial-gradient(circle, rgba(87, 242, 135, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+                                    top: 50%;
+                                    left: 50%;
+                                    transform: translate(-50%, -50%);
+                                    z-index: 0;
+                                    pointer-events: none;
+                                }
+                                .card {
+                                    position: relative;
+                                    z-index: 1;
+                                    background: rgba(30, 31, 34, 0.85);
+                                    backdrop-filter: blur(16px);
+                                    border: 1px solid rgba(255, 255, 255, 0.08);
+                                    border-radius: 20px;
+                                    padding: 48px 36px;
+                                    text-align: center;
+                                    max-width: 440px;
+                                    width: 100%;
+                                    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+                                    animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+                                }
+                                @keyframes fadeIn {
+                                    from { opacity: 0; transform: translateY(20px) scale(0.95); }
+                                    to { opacity: 1; transform: translateY(0) scale(1); }
+                                }
+                                .icon-container {
+                                    width: 80px;
+                                    height: 80px;
+                                    background: rgba(87, 242, 135, 0.1);
+                                    border: 2px solid #57F287;
+                                    border-radius: 50%;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    margin: 0 auto 24px auto;
+                                    box-shadow: 0 0 30px rgba(87, 242, 135, 0.3);
+                                    animation: pulse 2s infinite;
+                                }
+                                @keyframes pulse {
+                                    0% { box-shadow: 0 0 20px rgba(87, 242, 135, 0.2); }
+                                    50% { box-shadow: 0 0 35px rgba(87, 242, 135, 0.4); }
+                                    100% { box-shadow: 0 0 20px rgba(87, 242, 135, 0.2); }
+                                }
+                                .icon-container svg {
+                                    width: 40px;
+                                    height: 40px;
+                                    fill: none;
+                                    stroke: #57F287;
+                                    stroke-width: 3;
+                                    stroke-linecap: round;
+                                    stroke-linejoin: round;
+                                }
+                                h1 {
+                                    font-size: 24px;
+                                    font-weight: 800;
+                                    margin-bottom: 12px;
+                                    color: #FFFFFF;
+                                    letter-spacing: -0.5px;
+                                }
+                                p {
+                                    color: #B5BAC1;
+                                    font-size: 15px;
+                                    line-height: 1.6;
+                                    margin-bottom: 28px;
+                                }
+                                .btn {
+                                    display: inline-block;
+                                    width: 100%;
+                                    padding: 14px 20px;
+                                    background: #5865F2;
+                                    color: #FFFFFF;
+                                    font-weight: 700;
+                                    font-size: 15px;
+                                    border-radius: 10px;
+                                    text-decoration: none;
+                                    transition: all 0.2s ease;
+                                    box-shadow: 0 4px 14px rgba(88, 101, 242, 0.4);
+                                }
+                                .btn:hover {
+                                    background: #4752C4;
+                                    transform: translateY(-2px);
+                                    box-shadow: 0 6px 20px rgba(88, 101, 242, 0.6);
+                                }
+                                .footer-text {
+                                    font-size: 12px;
+                                    color: #80848E;
+                                    margin-top: 20px;
+                                }
                             </style>
                         </head>
                         <body>
+                            <div class="bg-glow"></div>
                             <div class="card">
-                                <h1>✅ Vérification réussie !</h1>
-                                <p>Votre compte a bien été vérifié. Vous pouvez retourner sur Discord, tous vos accès sont débloqués.</p>
+                                <div class="icon-container">
+                                    <svg viewBox="0 0 24 24">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </div>
+                                <h1>Vérification Réussie !</h1>
+                                <p>Votre compte Discord a été vérifié avec succès par <strong>NextGen Security Protocol</strong>.<br><br>Tous vos accès aux salons du serveur sont désormais débloqués !</p>
+                                <a href="discord://" class="btn">Retourner sur Discord</a>
+                                <div class="footer-text">Vous pouvez désormais fermer cet onglet.</div>
                             </div>
                         </body>
                         </html>
@@ -1638,7 +1749,14 @@ client.on('interactionCreate', async (interaction) => {
                 if (guild) {
                     const logGenEmbed = new EmbedBuilder()
                         .setTitle('⚡ Compte Généré')
-                        .setDescription(`👤 **Membre :** <@${user.id}>\n🛒 **Service :** \`${serviceName}\``)
+                        .setDescription([
+                            `👤 **Membre :** <@${user.id}> (\`${user.tag}\`)`,
+                            `🛒 **Service :** **${serviceName}**`,
+                            `🔑 **Compte Généré :**`,
+                            '```',
+                            realAccountCombo || 'test:test',
+                            '```'
+                        ].join('\n'))
                         .setColor('#57F287')
                         .setTimestamp();
                     await sendLog(guild, logGenEmbed);
