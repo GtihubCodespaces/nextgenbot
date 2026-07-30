@@ -608,16 +608,23 @@ function getPermissionOverwrites(guild, channelName, channelId) {
     const everyoneRole = guild.roles.everyone;
     const notRegRole = guild.roles.cache.find(r => r.name === 'Not Registered');
     const countryChoiceRole = guild.roles.cache.find(r => r.name === 'Country Choice');
-    const frRole = guild.roles.cache.find(r => r.name === '🇫🇷 Français');
-    const enRole = guild.roles.cache.find(r => r.name === '🇬🇧 English');
     
-    // Find Premium Role & Required Role
-    const premiumRoleId = getGuildConfig(guild.id, 'premiumRoleId');
-    const reqRoleId = getGuildConfig(guild.id, 'requiredRoleId');
+    // Flexible role matching for country & member roles
+    const frRole = guild.roles.cache.find(r => r.name.includes('Français') || r.name.includes('French') || r.name === '🇫🇷 Français');
+    const enRole = guild.roles.cache.find(r => r.name.includes('English') || r.name.includes('Anglais') || r.name === '🇬🇧 English');
+    const frMemberRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'membre' || r.name.toLowerCase() === 'members');
+    const enMemberRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
 
-    const premiumRole = (premiumRoleId ? guild.roles.cache.get(premiumRoleId) : null) 
-        || guild.roles.cache.find(r => r.name.toLowerCase().includes('premium') || r.name.toLowerCase().includes('vip'));
-    const reqRole = reqRoleId ? guild.roles.cache.get(reqRoleId) : null;
+    // Find Per-Country Required & Premium Roles
+    const reqRoleIdFr = getGuildConfig(guild.id, 'requiredRoleId_fr') || getGuildConfig(guild.id, 'requiredRoleId');
+    const reqRoleIdEn = getGuildConfig(guild.id, 'requiredRoleId_en') || getGuildConfig(guild.id, 'requiredRoleId');
+    const premRoleIdFr = getGuildConfig(guild.id, 'premiumRoleId_fr') || getGuildConfig(guild.id, 'premiumRoleId');
+    const premRoleIdEn = getGuildConfig(guild.id, 'premiumRoleId_en') || getGuildConfig(guild.id, 'premiumRoleId');
+
+    const reqRoleFr = reqRoleIdFr ? guild.roles.cache.get(reqRoleIdFr) : null;
+    const reqRoleEn = reqRoleIdEn ? guild.roles.cache.get(reqRoleIdEn) : null;
+    const premRoleFr = premRoleIdFr ? guild.roles.cache.get(premRoleIdFr) : null;
+    const premRoleEn = premRoleIdEn ? guild.roles.cache.get(premRoleIdEn) : null;
 
     const overwrites = [];
     const nameLower = channelName.toLowerCase();
@@ -666,47 +673,50 @@ function getPermissionOverwrites(guild, channelName, channelId) {
         if (frRole) overwrites.push({ id: frRole.id, deny: [PermissionFlagsBits.ViewChannel] });
         if (enRole) overwrites.push({ id: enRole.id, deny: [PermissionFlagsBits.ViewChannel] });
         
-        if (premiumRole) {
-            overwrites.push({
-                id: premiumRole.id,
-                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
-                deny: [PermissionFlagsBits.SendMessages]
-            });
+        const isEnglish = nameLower.includes('en') || nameLower.includes('free-gen') || nameLower.includes('premium-gen');
+        if (isEnglish && premRoleEn) {
+            overwrites.push({ id: premRoleEn.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
+        } else if (!isEnglish && premRoleFr) {
+            overwrites.push({ id: premRoleFr.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
+        } else {
+            const generalPrem = guild.roles.cache.find(r => r.name.toLowerCase().includes('premium') || r.name.toLowerCase().includes('vip'));
+            if (generalPrem) overwrites.push({ id: generalPrem.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
         }
         return overwrites;
     }
 
-    // 4. Free Generator channels (including IDs 1532367071273291817 & 1532367088809676975)
+    // 4. Free Generator channels
     const isFrGen = channelId === '1532367071273291817' || nameLower.includes('gen-free') || (nameLower.includes('gen') && !nameLower.includes('en'));
     const isEnGen = channelId === '1532367088809676975' || nameLower.includes('free-gen') || (nameLower.includes('gen') && nameLower.includes('en'));
 
     if (isFrGen || isEnGen || nameLower.includes('générateur') || nameLower.includes('generator')) {
         if (isEnGen) {
             if (enRole) overwrites.push({ id: enRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
+            if (enMemberRole && enMemberRole.id !== enRole?.id) overwrites.push({ id: enMemberRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
             if (frRole) overwrites.push({ id: frRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+            if (reqRoleEn) overwrites.push({ id: reqRoleEn.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
         } else {
+            // French Gen
             if (frRole) overwrites.push({ id: frRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
+            if (frMemberRole && frMemberRole.id !== frRole?.id) overwrites.push({ id: frMemberRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
             if (enRole) overwrites.push({ id: enRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+            if (reqRoleFr) overwrites.push({ id: reqRoleFr.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
         }
-
-        // Grant access to configured Required Role if present
-        if (reqRole) {
-            overwrites.push({ id: reqRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
-        }
-
         return overwrites;
     }
 
-    // 5. Invites channels (1532367061974519998 & 1532367078030446602)
+    // 5. Invites channels
     const isFrInv = channelId === '1532367061974519998' || (nameLower.includes('invite') && !nameLower.includes('en'));
     const isEnInv = channelId === '1532367078030446602' || nameLower.includes('invites') || (nameLower.includes('invite') && nameLower.includes('en'));
 
     if (isFrInv || isEnInv) {
         if (isEnInv) {
             if (enRole) overwrites.push({ id: enRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
+            if (enMemberRole && enMemberRole.id !== enRole?.id) overwrites.push({ id: enMemberRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
             if (frRole) overwrites.push({ id: frRole.id, deny: [PermissionFlagsBits.ViewChannel] });
         } else {
             if (frRole) overwrites.push({ id: frRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
+            if (frMemberRole && frMemberRole.id !== frRole?.id) overwrites.push({ id: frMemberRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
             if (enRole) overwrites.push({ id: enRole.id, deny: [PermissionFlagsBits.ViewChannel] });
         }
         return overwrites;
@@ -716,21 +726,21 @@ function getPermissionOverwrites(guild, channelName, channelId) {
     const isEnglishChannel = nameLower.includes('-en') || nameLower.includes('announcements') || nameLower.includes('proofs') || nameLower.includes('tickets') || nameLower.includes('drops') || nameLower.includes('restocks');
     
     if (isEnglishChannel) {
-        if (enRole) {
-            const allowPerms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory];
-            const denyPerms = config.readOnly ? [PermissionFlagsBits.SendMessages] : [];
-            if (config.allowReactions) allowPerms.push(PermissionFlagsBits.AddReactions);
-            overwrites.push({ id: enRole.id, allow: allowPerms, deny: denyPerms });
-        }
+        const allowPerms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory];
+        const denyPerms = config.readOnly ? [PermissionFlagsBits.SendMessages] : [];
+        if (config.allowReactions) allowPerms.push(PermissionFlagsBits.AddReactions);
+
+        if (enRole) overwrites.push({ id: enRole.id, allow: allowPerms, deny: denyPerms });
+        if (enMemberRole && enMemberRole.id !== enRole?.id) overwrites.push({ id: enMemberRole.id, allow: allowPerms, deny: denyPerms });
         if (frRole) overwrites.push({ id: frRole.id, deny: [PermissionFlagsBits.ViewChannel] });
     } else {
         // French Channel (Default)
-        if (frRole) {
-            const allowPerms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory];
-            const denyPerms = config.readOnly ? [PermissionFlagsBits.SendMessages] : [];
-            if (config.allowReactions) allowPerms.push(PermissionFlagsBits.AddReactions);
-            overwrites.push({ id: frRole.id, allow: allowPerms, deny: denyPerms });
-        }
+        const allowPerms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory];
+        const denyPerms = config.readOnly ? [PermissionFlagsBits.SendMessages] : [];
+        if (config.allowReactions) allowPerms.push(PermissionFlagsBits.AddReactions);
+
+        if (frRole) overwrites.push({ id: frRole.id, allow: allowPerms, deny: denyPerms });
+        if (frMemberRole && frMemberRole.id !== frRole?.id) overwrites.push({ id: frMemberRole.id, allow: allowPerms, deny: denyPerms });
         if (enRole) overwrites.push({ id: enRole.id, deny: [PermissionFlagsBits.ViewChannel] });
     }
 
@@ -1166,10 +1176,12 @@ async function registerCommands() {
             )
             .addSubcommand(sub => 
                 sub.setName('gen')
-                    .setDescription('Configuration rapide du générateur')
+                    .setDescription('Configuration rapide du générateur (par pays FR & EN)')
                     .addIntegerOption(option => option.setName('cooldown').setDescription('Temps d\'attente (en s)'))
-                    .addRoleOption(option => option.setName('role_requis').setDescription('Rôle requis (générateur basique)'))
-                    .addRoleOption(option => option.setName('role_premium').setDescription('Rôle requis (générateur premium)'))
+                    .addRoleOption(option => option.setName('role_requis_fr').setDescription('Rôle requis (Générateur Free FR)'))
+                    .addRoleOption(option => option.setName('role_requis_en').setDescription('Rôle requis (Générateur Free EN)'))
+                    .addRoleOption(option => option.setName('role_premium_fr').setDescription('Rôle requis (Générateur Premium FR)'))
+                    .addRoleOption(option => option.setName('role_premium_en').setDescription('Rôle requis (Générateur Premium EN)'))
                     .addIntegerOption(option => option.setName('limite_journaliere').setDescription('Limite/jour (0=illimité)'))
                     .addStringOption(option => option.setName('gif_banner').setDescription('Lien URL du GIF/Bannière pour les panneaux'))
             ),
@@ -1265,7 +1277,7 @@ client.once('clientReady', async () => {
             const updatePanel = async (panelKey) => {
                 if (!pData[panelKey]) return;
                 try {
-                    const ch = guild.channels.cache.get(pData[panelKey].channelId);
+                    const ch = guild.channels.cache.get(pData[panelKey].channelId) || await guild.channels.fetch(pData[panelKey].channelId).catch(() => null);
                     if (ch) {
                         const msg = await ch.messages.fetch(pData[panelKey].messageId).catch(() => null);
                         if (msg) {
@@ -1273,15 +1285,19 @@ client.once('clientReady', async () => {
                             const tier = pData[panelKey].tier || 'free';
                             const embedData = await buildPanelEmbed(guild, lang, tier);
                             const components = await buildServiceRows(guild, tier);
-                            await msg.edit({ embeds: [embedData.embed], components: components });
-                        } else {
-                            removePanel(guildId, panelKey);
+
+                            const editOptions = { embeds: [embedData.embed], components: components };
+                            if (embedData.bannerAttachment) {
+                                editOptions.files = [embedData.bannerAttachment];
+                            }
+
+                            await msg.edit(editOptions).catch(err => {
+                                if (err.code === 10008) removePanel(guildId, panelKey);
+                            });
                         }
-                    } else {
-                        removePanel(guildId, panelKey);
                     }
                 } catch (e) {
-                    removePanel(guildId, panelKey);
+                    // Ne pas supprimer le panel sur une erreur temporaire
                 }
             };
             
@@ -1878,17 +1894,19 @@ client.on('interactionCreate', async (interaction) => {
                 const components = await buildServiceRows(guild);
 
                 if (frGenChannel) {
-                    const frData = await buildPanelEmbed(guild, 'fr');
+                    const frData = await buildPanelEmbed(guild, 'fr', 'free');
                     const payloadFr = { embeds: [frData.embed], components: components };
                     if (frData.bannerAttachment) payloadFr.files = [frData.bannerAttachment];
-                    await frGenChannel.send(payloadFr);
+                    const msgFr = await frGenChannel.send(payloadFr);
+                    setPanel(guild.id, `fr_free_${frGenChannel.id}`, frGenChannel.id, msgFr.id, 'free');
                 }
 
                 if (enGenChannel) {
-                    const enData = await buildPanelEmbed(guild, 'en');
+                    const enData = await buildPanelEmbed(guild, 'en', 'free');
                     const payloadEn = { embeds: [enData.embed], components: components };
                     if (enData.bannerAttachment) payloadEn.files = [enData.bannerAttachment];
-                    await enGenChannel.send(payloadEn);
+                    const msgEn = await enGenChannel.send(payloadEn);
+                    setPanel(guild.id, `en_free_${enGenChannel.id}`, enGenChannel.id, msgEn.id, 'free');
                 }
 
                 const setupEmbed = new EmbedBuilder()
@@ -1994,7 +2012,7 @@ client.on('interactionCreate', async (interaction) => {
                     'Welcome to the **NextGen** FAQ! Find answers to the most common questions below:',
                     '',
                     '### ⚡ **How to generate an account?**',
-                    'Go to the generator channel `/panel`, then click the button for your desired service. Your credentials will be sent immediately to your **Direct Messages (DM)**.',
+                    'Go to the generator channel (`#free-gen` / `#premium-gen`), then click the button for your desired service. Your credentials will be sent immediately to your **Direct Messages (DM)**.',
                     '',
                     '### 🛡️ **How to unlock server channels?**',
                     'You must complete the verification in <#verify> and choose your language. All channels will unlock automatically.',
@@ -2011,7 +2029,7 @@ client.on('interactionCreate', async (interaction) => {
                     'Bienvenue dans la FAQ du serveur **NextGen** ! Retrouvez ci-dessous les réponses aux questions les plus fréquentes :',
                     '',
                     '### ⚡ **Comment générer un compte ?**',
-                    'Rendez-vous dans le salon du générateur `/panel`, puis cliquez sur le bouton du service de votre choix. Vos identifiants vous seront immédiatement envoyés en **Message Privé (DM)**.',
+                    'Rendez-vous dans le salon du générateur (`#gen-free` / `#gen-premium`), puis cliquez sur le bouton du service de votre choix. Vos identifiants vous seront immédiatement envoyés en **Message Privé (DM)**.',
                     '',
                     '### 🛡️ **Comment débloquer les salons du serveur ?**',
                     'Vous devez effectuer la vérification dans le salon <#verify>. Une fois vérifié, tous les salons se débloqueront automatiquement.',
@@ -2192,30 +2210,26 @@ client.on('interactionCreate', async (interaction) => {
 
             else if (commandName === 'config' && interaction.options.getSubcommand() === 'gen') {
                 const cooldownInput = interaction.options.getInteger('cooldown');
-                const roleInput = interaction.options.getRole('role_requis');
-                const rolePremiumInput = interaction.options.getRole('role_premium');
+                const reqFr = interaction.options.getRole('role_requis_fr');
+                const reqEn = interaction.options.getRole('role_requis_en');
+                const premFr = interaction.options.getRole('role_premium_fr');
+                const premEn = interaction.options.getRole('role_premium_en');
                 const limitInput = interaction.options.getInteger('limite_journaliere');
                 const gifBannerInput = interaction.options.getString('gif_banner');
 
-                if (cooldownInput !== null) {
-                    setGuildConfig(interaction.guild.id, 'cooldown', cooldownInput);
-                }
-                if (roleInput !== null) {
-                    setGuildConfig(interaction.guild.id, 'requiredRoleId', roleInput.id);
-                }
-                if (rolePremiumInput !== null) {
-                    setGuildConfig(interaction.guild.id, 'premiumRoleId', rolePremiumInput.id);
-                }
-                if (limitInput !== null) {
-                    setGuildConfig(interaction.guild.id, 'dailyLimit', limitInput);
-                }
-                if (gifBannerInput !== null) {
-                    setGuildConfig(interaction.guild.id, 'panelGifUrl', gifBannerInput);
-                }
+                if (cooldownInput !== null) setGuildConfig(interaction.guild.id, 'cooldown', cooldownInput);
+                if (reqFr !== null) setGuildConfig(interaction.guild.id, 'requiredRoleId_fr', reqFr.id);
+                if (reqEn !== null) setGuildConfig(interaction.guild.id, 'requiredRoleId_en', reqEn.id);
+                if (premFr !== null) setGuildConfig(interaction.guild.id, 'premiumRoleId_fr', premFr.id);
+                if (premEn !== null) setGuildConfig(interaction.guild.id, 'premiumRoleId_en', premEn.id);
+                if (limitInput !== null) setGuildConfig(interaction.guild.id, 'dailyLimit', limitInput);
+                if (gifBannerInput !== null) setGuildConfig(interaction.guild.id, 'panelGifUrl', gifBannerInput);
 
                 const currentCooldown = getGuildConfig(interaction.guild.id, 'cooldown') ?? 60;
-                const currentReqRole = getGuildConfig(interaction.guild.id, 'requiredRoleId');
-                const currentPremiumRole = getGuildConfig(interaction.guild.id, 'premiumRoleId');
+                const currentReqFr = getGuildConfig(interaction.guild.id, 'requiredRoleId_fr');
+                const currentReqEn = getGuildConfig(interaction.guild.id, 'requiredRoleId_en');
+                const currentPremFr = getGuildConfig(interaction.guild.id, 'premiumRoleId_fr');
+                const currentPremEn = getGuildConfig(interaction.guild.id, 'premiumRoleId_en');
                 const currentLimit = getGuildConfig(interaction.guild.id, 'dailyLimit') ?? 0;
                 const currentGif = getGuildConfig(interaction.guild.id, 'panelGifUrl');
 
@@ -2224,11 +2238,13 @@ client.on('interactionCreate', async (interaction) => {
                     .setDescription([
                         'Voici la configuration actuelle du générateur pour votre serveur :',
                         '',
-                        `⏱️ **Cooldown entre 2 générations :** **${currentCooldown} seconde(s)**`,
-                        `🔑 **Rôle requis (Free) :** ${currentReqRole ? `<@&${currentReqRole}>` : '`Aucun (Ouvert aux membres vérifiés)`'}`,
-                        `👑 **Rôle Premium requis :** ${currentPremiumRole ? `<@&${currentPremiumRole}>` : '`Aucun`'}`,
-                        `📊 **Limite journalière :** ${currentLimit > 0 ? `**${currentLimit}** générations par jour` : '`Illimitée`'}`,
-                        `🖼️ **Bannière GIF :** ${currentGif ? `[Voir le GIF](${currentGif})` : '`GIF Par Défaut`'}`,
+                        `⏱️ **Cooldown :** **${currentCooldown}s**`,
+                        `🔑 **Rôle Requis (Free FR) :** ${currentReqFr ? `<@&${currentReqFr}>` : '`Aucun (Ouvert)`'}`,
+                        `🔑 **Rôle Requis (Free EN) :** ${currentReqEn ? `<@&${currentReqEn}>` : '`Aucun (Ouvert)`'}`,
+                        `👑 **Rôle Premium (FR) :** ${currentPremFr ? `<@&${currentPremFr}>` : '`Aucun`'}`,
+                        `👑 **Rôle Premium (EN) :** ${currentPremEn ? `<@&${currentPremEn}>` : '`Aucun`'}`,
+                        `📊 **Limite Journalière :** ${currentLimit > 0 ? `**${currentLimit}** / jour` : '`Illimitée`'}`,
+                        `🖼️ **Bannière GIF :** ${currentGif ? `[Voir le GIF](${currentGif})` : '`Par Défaut`'}`,
                         '',
                         '*Utilisez les paramètres de la commande `/config gen` ou le dashboard `/settings` pour modifier ces valeurs.*'
                     ].join('\n'))
@@ -2585,7 +2601,7 @@ ${textContent}`;
                             `📈 **Stock Total Actuel :** **${totalStockCount}** comptes`,
                             `👤 **Restocké par :** <@${interaction.user.id}>`,
                             '',
-                            'Rendez-vous sur le `/panel` pour générer votre compte !'
+                            'Rendez-vous dans le salon générateur (`#gen-free` / `#gen-premium`) pour générer votre compte !'
                         ].join('\n'))
                         .setColor('#FEE75C')
                         .setTimestamp();
@@ -2603,7 +2619,7 @@ ${textContent}`;
                                 `📈 **Total Current Stock:** **${totalStockCount}** accounts`,
                                 `👤 **Restocked by:** <@${interaction.user.id}>`,
                                 '',
-                                'Head over to `/panel` to generate your account!'
+                                'Head over to the generator channel (`#free-gen` / `#premium-gen`) to generate your account!'
                             ].join('\n'))
                             .setColor('#FEE75C')
                             .setTimestamp();
@@ -2886,20 +2902,22 @@ ${textContent}`;
             const { customId, values, guild } = interaction;
             const selectedRoleId = values[0];
 
-            if (customId === 'select_role_requis') {
-                setGuildConfig(guild.id, 'requiredRoleId', selectedRoleId || null);
+            if (customId === 'select_role_requis_fr') {
+                setGuildConfig(guild.id, 'requiredRoleId_fr', selectedRoleId || null);
                 const roleMention = selectedRoleId ? `<@&${selectedRoleId}>` : '`Aucun`';
-                await interaction.reply({
-                    content: `✅ Rôle requis pour le Générateur Free mis à jour sur ${roleMention}.`,
-                    flags: MessageFlags.Ephemeral
-                });
-            } else if (customId === 'select_role_premium') {
-                setGuildConfig(guild.id, 'premiumRoleId', selectedRoleId || null);
+                await interaction.reply({ content: `✅ Rôle requis (Free FR) mis à jour sur ${roleMention}.`, flags: MessageFlags.Ephemeral });
+            } else if (customId === 'select_role_requis_en') {
+                setGuildConfig(guild.id, 'requiredRoleId_en', selectedRoleId || null);
                 const roleMention = selectedRoleId ? `<@&${selectedRoleId}>` : '`Aucun`';
-                await interaction.reply({
-                    content: `✅ Rôle requis pour le Générateur Premium mis à jour sur ${roleMention}.`,
-                    flags: MessageFlags.Ephemeral
-                });
+                await interaction.reply({ content: `✅ Rôle requis (Free EN) mis à jour sur ${roleMention}.`, flags: MessageFlags.Ephemeral });
+            } else if (customId === 'select_role_premium_fr') {
+                setGuildConfig(guild.id, 'premiumRoleId_fr', selectedRoleId || null);
+                const roleMention = selectedRoleId ? `<@&${selectedRoleId}>` : '`Aucun`';
+                await interaction.reply({ content: `✅ Rôle requis (Premium FR) mis à jour sur ${roleMention}.`, flags: MessageFlags.Ephemeral });
+            } else if (customId === 'select_role_premium_en') {
+                setGuildConfig(guild.id, 'premiumRoleId_en', selectedRoleId || null);
+                const roleMention = selectedRoleId ? `<@&${selectedRoleId}>` : '`Aucun`';
+                await interaction.reply({ content: `✅ Rôle requis (Premium EN) mis à jour sur ${roleMention}.`, flags: MessageFlags.Ephemeral });
             }
         }
 
@@ -2911,65 +2929,65 @@ ${textContent}`;
 
                 if (selectedVal === 'settings_cat_gen') {
                     const cooldown = getGuildConfig(guild.id, 'cooldown') ?? 60;
-                    const reqRole = getGuildConfig(guild.id, 'requiredRoleId');
-                    const premiumRole = getGuildConfig(guild.id, 'premiumRoleId');
+                    const reqFr = getGuildConfig(guild.id, 'requiredRoleId_fr');
+                    const reqEn = getGuildConfig(guild.id, 'requiredRoleId_en');
+                    const premFr = getGuildConfig(guild.id, 'premiumRoleId_fr');
+                    const premEn = getGuildConfig(guild.id, 'premiumRoleId_en');
                     const dailyLimit = getGuildConfig(guild.id, 'dailyLimit') ?? 0;
-
                     const currentGif = getGuildConfig(guild.id, 'panelGifUrl');
 
                     const genEmbed = new EmbedBuilder()
                         .setTitle('⚡ Configuration du Générateur')
                         .setDescription([
-                            'Voici les paramètres actuels du générateur :',
+                            'Voici les paramètres actuels du générateur par pays :',
                             '',
                             `⏱️ **Cooldown entre 2 gens :** **${cooldown}s**`,
-                            `🔑 **Rôle Requis (Free) :** ${reqRole ? `<@&${reqRole}>` : '`Aucun`'}`,
-                            `👑 **Rôle Requis (Premium) :** ${premiumRole ? `<@&${premiumRole}>` : '`Aucun`'}`,
+                            `🔑 **Rôle Requis (Free FR) :** ${reqFr ? `<@&${reqFr}>` : '`Aucun`'}`,
+                            `🔑 **Rôle Requis (Free EN) :** ${reqEn ? `<@&${reqEn}>` : '`Aucun`'}`,
+                            `👑 **Rôle Premium (FR) :** ${premFr ? `<@&${premFr}>` : '`Aucun`'}`,
+                            `👑 **Rôle Premium (EN) :** ${premEn ? `<@&${premEn}>` : '`Aucun`'}`,
                             `📊 **Limite Journalière :** ${dailyLimit > 0 ? `**${dailyLimit}** / jour` : '`Illimitée`'}`,
-                            `🖼️ **Bannière GIF :** ${currentGif ? `[Voir le GIF](${currentGif})` : '`GIF Par Défaut`'}`,
+                            `🖼️ **Bannière GIF :** ${currentGif ? `[Voir le GIF](${currentGif})` : '`Par Défaut`'}`,
                             '',
-                            'Utilisez les menus déroulants et boutons ci-dessous pour modifier la configuration directement !'
+                            'Utilisez les menus déroulants et boutons ci-dessous pour modifier la configuration !'
                         ].join('\n'))
                         .setColor('#5865F2');
 
-                    const reqRoleRow = new ActionRowBuilder().addComponents(
+                    const reqRoleFrRow = new ActionRowBuilder().addComponents(
                         new RoleSelectMenuBuilder()
-                            .setCustomId('select_role_requis')
-                            .setPlaceholder('🔑 Choisir le rôle requis (Générateur Free)...')
-                            .setMinValues(0)
-                            .setMaxValues(1)
+                            .setCustomId('select_role_requis_fr')
+                            .setPlaceholder('🇫🇷 Rôle Requis Free (FR)...')
+                            .setMinValues(0).setMaxValues(1)
                     );
-
-                    const premRoleRow = new ActionRowBuilder().addComponents(
+                    const reqRoleEnRow = new ActionRowBuilder().addComponents(
                         new RoleSelectMenuBuilder()
-                            .setCustomId('select_role_premium')
-                            .setPlaceholder('👑 Choisir le rôle requis (Générateur Premium)...')
-                            .setMinValues(0)
-                            .setMaxValues(1)
+                            .setCustomId('select_role_requis_en')
+                            .setPlaceholder('🇬🇧 Rôle Requis Free (EN)...')
+                            .setMinValues(0).setMaxValues(1)
+                    );
+                    const premRoleFrRow = new ActionRowBuilder().addComponents(
+                        new RoleSelectMenuBuilder()
+                            .setCustomId('select_role_premium_fr')
+                            .setPlaceholder('🇫🇷 Rôle Premium (FR)...')
+                            .setMinValues(0).setMaxValues(1)
+                    );
+                    const premRoleEnRow = new ActionRowBuilder().addComponents(
+                        new RoleSelectMenuBuilder()
+                            .setCustomId('select_role_premium_en')
+                            .setPlaceholder('🇬🇧 Rôle Premium (EN)...')
+                            .setMinValues(0).setMaxValues(1)
                     );
 
                     const btnRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('settings_btn_cooldown')
-                            .setLabel('⏱️ Cooldown')
-                            .setStyle(ButtonStyle.Primary),
-                        new ButtonBuilder()
-                            .setCustomId('settings_btn_daily')
-                            .setLabel('📊 Limite Daily')
-                            .setStyle(ButtonStyle.Primary),
-                        new ButtonBuilder()
-                            .setCustomId('settings_btn_gif')
-                            .setLabel('🖼️ Modifier GIF')
-                            .setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder()
-                            .setCustomId('settings_btn_reset')
-                            .setLabel('🔄 Réinitialiser')
-                            .setStyle(ButtonStyle.Danger)
+                        new ButtonBuilder().setCustomId('settings_btn_cooldown').setLabel('⏱️ Cooldown').setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder().setCustomId('settings_btn_daily').setLabel('📊 Limite Daily').setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder().setCustomId('settings_btn_gif').setLabel('🖼️ Modifier GIF').setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId('settings_btn_reset').setLabel('🔄 Réinitialiser').setStyle(ButtonStyle.Danger)
                     );
 
                     await interaction.reply({
                         embeds: [genEmbed],
-                        components: [reqRoleRow, premRoleRow, btnRow],
+                        components: [reqRoleFrRow, reqRoleEnRow, premRoleFrRow, premRoleEnRow, btnRow],
                         flags: MessageFlags.Ephemeral
                     });
                 } else if (selectedVal === 'settings_cat_logs') {
@@ -3182,9 +3200,16 @@ ${textContent}`;
                 const serviceObj = services.find(s => s.id === serviceId);
                 const serviceName = serviceObj ? serviceObj.label : serviceId;
 
-                const reqRoleId = getGuildConfig(guild.id, 'requiredRoleId');
-                const premiumRoleId = getGuildConfig(guild.id, 'premiumRoleId');
                 const member = await guild.members.fetch(user.id).catch(() => null);
+                const isEnglishUser = member ? member.roles.cache.some(r => r.name.includes('English') || r.name.includes('Anglais')) : false;
+
+                const reqRoleIdFr = getGuildConfig(guild.id, 'requiredRoleId_fr') || getGuildConfig(guild.id, 'requiredRoleId');
+                const reqRoleIdEn = getGuildConfig(guild.id, 'requiredRoleId_en') || getGuildConfig(guild.id, 'requiredRoleId');
+                const premRoleIdFr = getGuildConfig(guild.id, 'premiumRoleId_fr') || getGuildConfig(guild.id, 'premiumRoleId');
+                const premRoleIdEn = getGuildConfig(guild.id, 'premiumRoleId_en') || getGuildConfig(guild.id, 'premiumRoleId');
+
+                const reqRoleId = isEnglishUser ? reqRoleIdEn : reqRoleIdFr;
+                const premiumRoleId = isEnglishUser ? premRoleIdEn : premRoleIdFr;
 
                 if (reqRoleId && member && !member.roles.cache.has(reqRoleId)) {
                     return interaction.reply({
