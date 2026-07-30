@@ -548,7 +548,21 @@ const services = [
     { id: 'netflix', label: 'Netflix', emojiName: 'ng_netflix', defaultEmoji: '🍿', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Netflix_2015_N_logo.svg/512px-Netflix_2015_N_logo.svg.png', style: ButtonStyle.Secondary, tier: 'premium' },
     { id: 'ebay', label: 'Ebay', emojiName: 'ng_ebay', defaultEmoji: '🛒', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/EBay_logo.svg/512px-EBay_logo.svg.png', style: ButtonStyle.Secondary, tier: 'premium' },
     { id: 'spotify', label: 'Spotify', emojiName: 'ng_spotify', defaultEmoji: '🎵', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/Spotify_icon.svg/512px-Spotify_icon.svg.png', style: ButtonStyle.Secondary, tier: 'premium' },
-    { id: 'battlenet', label: 'Battle.net', emojiName: 'ng_battlenet', defaultEmoji: '⚔️', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Battle.net_Logo.svg/512px-Battle.net_Logo.svg.png', style: ButtonStyle.Secondary, tier: 'premium' }
+    { id: 'battlenet', label: 'Battle.net', emojiName: 'ng_battlenet', defaultEmoji: '⚔️', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Battle.net_Logo.svg/512px-Battle.net_Logo.svg.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'deezer', label: 'Deezer', emojiName: 'ng_deezer', defaultEmoji: '🎧', iconUrl: 'https://cdn-icons-png.flaticon.com/512/5968/5968841.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'protonvpn', label: 'ProtonVPN', emojiName: 'ng_protonvpn', defaultEmoji: '🔐', iconUrl: 'https://cdn.iconscout.com/icon/free/png-256/free-protonvpn-3442907-2875385.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'paypal', label: 'PayPal', emojiName: 'ng_paypal', defaultEmoji: '💳', iconUrl: 'https://img.icons8.com/color/512/paypal.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'tiktok', label: 'TikTok', emojiName: 'ng_tiktok', defaultEmoji: '🎵', iconUrl: 'https://img.icons8.com/color/512/tiktok.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'patreon', label: 'Patreon', emojiName: 'ng_patreon', defaultEmoji: '🎨', iconUrl: 'https://img.icons8.com/color/512/patreon.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'elevenlabs', label: 'ElevenLabs AI', emojiName: 'ng_elevenlabs', defaultEmoji: '🎙️', iconUrl: 'https://cdn.iconscout.com/icon/premium/png-256-thumb/sound-wave-3351989-2810811.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'wondershare', label: 'Wondershare', emojiName: 'ng_wondershare', defaultEmoji: '🎬', iconUrl: 'https://img.icons8.com/color/512/video-editing.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'steam', label: 'Steam', emojiName: 'ng_steam', defaultEmoji: '🎮', iconUrl: 'https://img.icons8.com/color/512/steam.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'twitter', label: 'Twitter / X', emojiName: 'ng_twitter', defaultEmoji: '𝕏', iconUrl: 'https://img.icons8.com/color/512/twitter--v1.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'reddit', label: 'Reddit', emojiName: 'ng_reddit', defaultEmoji: '🤖', iconUrl: 'https://img.icons8.com/color/512/reddit.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'pizzahut', label: 'Pizza Hut', emojiName: 'ng_pizzahut', defaultEmoji: '🍕', iconUrl: 'https://cdn-icons-png.flaticon.com/512/732/732238.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'psn', label: 'PlayStation Network', emojiName: 'ng_psn', defaultEmoji: '🟦', iconUrl: 'https://cdn-icons-png.flaticon.com/512/5968/5968875.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'primevideo', label: 'Amazon Prime Video', emojiName: 'ng_primevideo', defaultEmoji: '🎬', iconUrl: 'https://img.icons8.com/color/512/amazon-prime-video.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'hbomax', label: 'HBO Max', emojiName: 'ng_hbomax', defaultEmoji: '🟣', iconUrl: 'https://img.icons8.com/color/512/hbo.png', style: ButtonStyle.Secondary, tier: 'premium' }
 ];
 
 // --- IMPORTATION ET SYNC AUTOMATIQUE DE TOUS LES EMOJIS SUR LE SERVEUR ---
