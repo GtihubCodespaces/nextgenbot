@@ -895,6 +895,10 @@ async function registerCommands() {
                     .setRequired(false)
             ),
         new SlashCommandBuilder()
+            .setName('setup-staff')
+            .setDescription('Crée la catégorie STAFF sécurisée avec salons annonces, chat et commandes')
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+        new SlashCommandBuilder()
             .setName('traduct-roles')
             .setDescription('Duplique et traduit tous les rôles du serveur en version anglaise')
             .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
@@ -1301,6 +1305,59 @@ client.on('interactionCreate', async (interaction) => {
                     ...dashboard,
                     flags: MessageFlags.Ephemeral
                 });
+            }
+
+            // --- COMMANDE /setup-staff ---
+            else if (commandName === 'setup-staff') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                const guild = interaction.guild;
+                const everyoneRole = guild.roles.everyone;
+
+                // 1. Création de la Catégorie STAFF (Non traduite, Anglais pur)
+                const staffCat = await guild.channels.create({
+                    name: 'STAFF',
+                    type: ChannelType.GuildCategory,
+                    permissionOverwrites: [
+                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] }
+                    ]
+                });
+
+                const staffChannels = [
+                    { name: '📢・announcements', readOnly: true },
+                    { name: '💬・staff-chat', readOnly: false },
+                    { name: '🤖・staff-commands', readOnly: false }
+                ];
+
+                const createdStaff = [];
+                for (const chData of staffChannels) {
+                    const overwrites = [
+                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] }
+                    ];
+
+                    const textCh = await guild.channels.create({
+                        name: chData.name,
+                        type: ChannelType.GuildText,
+                        parent: staffCat.id,
+                        permissionOverwrites: overwrites
+                    });
+
+                    createdStaff.push(`- <#${textCh.id}> ${chData.readOnly ? '🔒 *(Staff Announcements)*' : '💬 *(Staff Only)*'}`);
+                }
+
+                const staffEmbed = new EmbedBuilder()
+                    .setTitle('🛡️ Catégorie STAFF Déployée !')
+                    .setDescription([
+                        'La catégorie **STAFF** privée (Anglais pur) a été créée avec succès :',
+                        '',
+                        createdStaff.join('\n'),
+                        '',
+                        '*🔒 Ces salons sont strictement réservés à l\'équipe du staff et invisibles aux membres classiques.*'
+                    ].join('\n'))
+                    .setColor('#5865F2')
+                    .setTimestamp();
+
+                await interaction.editReply({ embeds: [staffEmbed] });
             }
 
             // --- COMMANDE /traduct-roles ---
