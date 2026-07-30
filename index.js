@@ -23,6 +23,7 @@ const path = require('path');
 const http = require('http');
 const url = require('url');
 const { createClient } = require('@libsql/client');
+const cron = require('node-cron');
 require('dotenv').config();
 
 // CONSTANTES DES RÔLES
@@ -142,6 +143,34 @@ function setGuildConfig(guildId, key, value) {
 function getGuildConfig(guildId, key) {
     const config = getConfig();
     return config[guildId] ? config[guildId][key] : null;
+}
+
+const panelsPath = path.join(__dirname, 'panels.json');
+
+function getPanels() {
+    if (!fs.existsSync(panelsPath)) {
+        fs.writeFileSync(panelsPath, JSON.stringify({}));
+    }
+    try {
+        return JSON.parse(fs.readFileSync(panelsPath, 'utf8'));
+    } catch {
+        return {};
+    }
+}
+
+function setPanel(guildId, panelKey, channelId, messageId, tier) {
+    const p = getPanels();
+    if (!p[guildId]) p[guildId] = {};
+    p[guildId][panelKey] = { channelId, messageId, tier };
+    fs.writeFileSync(panelsPath, JSON.stringify(p, null, 2));
+}
+
+function removePanel(guildId, panelKey) {
+    const p = getPanels();
+    if (p[guildId] && p[guildId][panelKey]) {
+        delete p[guildId][panelKey];
+        fs.writeFileSync(panelsPath, JSON.stringify(p, null, 2));
+    }
 }
 
 const stockPath = path.join(__dirname, 'stocks.json');
@@ -274,17 +303,26 @@ async function sendLog(guild, embed) {
 
 // --- CATALOGUE DES SERVICES AVEC LOGOS OFFICIELS PNG ---
 const services = [
-    { id: 'paramount', label: 'Paramount+', emojiName: 'ng_paramount', defaultEmoji: '🎬', iconUrl: 'https://play-lh.googleusercontent.com/O5QHZxy2pkxwHrjU3Omd_1jdIYk_pZQexy2VVEDBDhaXgNhvZV7wjhfN_0kLUrQfCKFsaGbQbVm8usyrc-yBGhI', style: ButtonStyle.Secondary },
-    { id: 'disney', label: 'Disney+', emojiName: 'ng_disney', defaultEmoji: '🏰', iconUrl: 'https://store-images.s-microsoft.com/image/apps.14187.14495311847124170.7646206e-bd82-4cf0-8b8c-d06a67bc302c.2e474878-acb7-4afb-a503-c2a1a32feaa8?h=210', style: ButtonStyle.Secondary },
-    { id: 'adn', label: 'ADN', emojiName: 'ng_adn', defaultEmoji: '🍥', iconUrl: 'https://m.media-amazon.com/images/I/51s-YfZ2TlS.png', style: ButtonStyle.Secondary },
-    { id: 'crunchyroll', label: 'Crunchyroll', emojiName: 'ng_crunchyroll', defaultEmoji: '🍿', iconUrl: 'https://img.icons8.com/color/512/crunchyroll.png', style: ButtonStyle.Secondary },
-    { id: 'fortnite', label: 'Fortnite', emojiName: 'ng_fortnite', defaultEmoji: '🎮', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Fortnite_F_lettermark_logo.png', style: ButtonStyle.Secondary },
-    { id: 'valorant', label: 'Valorant', emojiName: 'ng_valorant', defaultEmoji: '🎯', iconUrl: 'https://img.icons8.com/color/512/valorant.png', style: ButtonStyle.Secondary },
-    { id: 'xbox', label: 'Xbox', emojiName: 'ng_xbox', defaultEmoji: '🟢', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Xbox_one_logo.svg/500px-Xbox_one_logo.svg.png', style: ButtonStyle.Secondary },
-    { id: 'nordvpn', label: 'NordVPN', emojiName: 'ng_nordvpn', defaultEmoji: '🛡️', iconUrl: 'https://img.icons8.com/color/512/nordvpn.png', style: ButtonStyle.Secondary },
-    { id: 'hotmail', label: 'Hotmail', emojiName: 'ng_hotmail', defaultEmoji: '✉️', iconUrl: 'https://img.icons8.com/color/512/microsoft-outlook-2019.png', style: ButtonStyle.Secondary },
-    { id: 'expressvpn', label: 'ExpressVPN', emojiName: 'ng_expressvpn', defaultEmoji: '🚀', iconUrl: 'https://cdn.iconscout.com/icon/free/png-256/free-expressvpn-3442898-2875376.png', style: ButtonStyle.Secondary },
-    { id: 'mullvadvpn', label: 'MullvadVPN', emojiName: 'ng_mullvadvpn', defaultEmoji: '🔒', iconUrl: 'https://mullvad.net/press/MullvadVPN_logo_Round_RGB_Color_negative.png', style: ButtonStyle.Secondary }
+    { id: 'paramount', label: 'Paramount+', emojiName: 'ng_paramount', defaultEmoji: '🎬', iconUrl: 'https://play-lh.googleusercontent.com/O5QHZxy2pkxwHrjU3Omd_1jdIYk_pZQexy2VVEDBDhaXgNhvZV7wjhfN_0kLUrQfCKFsaGbQbVm8usyrc-yBGhI', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'disney', label: 'Disney+', emojiName: 'ng_disney', defaultEmoji: '🏰', iconUrl: 'https://store-images.w3schools.com/image/apps.14187.14495311847124170.7646206e-bd82-4cf0-8b8c-d06a67bc302c.2e474878-acb7-4afb-a503-c2a1a32feaa8?h=210', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'adn', label: 'ADN', emojiName: 'ng_adn', defaultEmoji: '🍥', iconUrl: 'https://m.media-amazon.com/images/I/51s-YfZ2TlS.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'crunchyroll', label: 'Crunchyroll', emojiName: 'ng_crunchyroll', defaultEmoji: '🍿', iconUrl: 'https://img.icons8.com/color/512/crunchyroll.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'fortnite', label: 'Fortnite', emojiName: 'ng_fortnite', defaultEmoji: '🎮', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Fortnite_F_lettermark_logo.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'valorant', label: 'Valorant', emojiName: 'ng_valorant', defaultEmoji: '🎯', iconUrl: 'https://img.icons8.com/color/512/valorant.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'xbox', label: 'Xbox', emojiName: 'ng_xbox', defaultEmoji: '🟢', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Xbox_one_logo.svg/500px-Xbox_one_logo.svg.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'nordvpn', label: 'NordVPN', emojiName: 'ng_nordvpn', defaultEmoji: '🛡️', iconUrl: 'https://img.icons8.com/color/512/nordvpn.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'hotmail', label: 'Hotmail', emojiName: 'ng_hotmail', defaultEmoji: '✉️', iconUrl: 'https://img.icons8.com/color/512/microsoft-outlook-2019.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'expressvpn', label: 'ExpressVPN', emojiName: 'ng_expressvpn', defaultEmoji: '🚀', iconUrl: 'https://cdn.iconscout.com/icon/free/png-256/free-expressvpn-3442898-2875376.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'mullvadvpn', label: 'MullvadVPN', emojiName: 'ng_mullvadvpn', defaultEmoji: '🔒', iconUrl: 'https://mullvad.net/press/MullvadVPN_logo_Round_RGB_Color_negative.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'gmail', label: 'Google Mail', emojiName: 'ng_gmail', defaultEmoji: '📧', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7e/Gmail_icon_%282020%29.svg/512px-Gmail_icon_%282020%29.svg.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'duolingo', label: 'Duolingo', emojiName: 'ng_duolingo', defaultEmoji: '🦉', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/15/Duolingo_logo.svg/512px-Duolingo_logo.svg.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'epicgames', label: 'Epic Games', emojiName: 'ng_epicgames', defaultEmoji: '🎮', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/31/Epic_Games_logo.svg/512px-Epic_Games_logo.svg.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'mega', label: 'Mega.nz', emojiName: 'ng_mega', defaultEmoji: 'Ⓜ️', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/MEGA_logo.svg/512px-MEGA_logo.svg.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'roblox', label: 'Roblox', emojiName: 'ng_roblox', defaultEmoji: '🧱', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Roblox_player_icon_black.svg/512px-Roblox_player_icon_black.svg.png', style: ButtonStyle.Secondary, tier: 'free' },
+    { id: 'netflix', label: 'Netflix', emojiName: 'ng_netflix', defaultEmoji: '🍿', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Netflix_2015_N_logo.svg/512px-Netflix_2015_N_logo.svg.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'ebay', label: 'Ebay', emojiName: 'ng_ebay', defaultEmoji: '🛒', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/EBay_logo.svg/512px-EBay_logo.svg.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'spotify', label: 'Spotify', emojiName: 'ng_spotify', defaultEmoji: '🎵', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/Spotify_icon.svg/512px-Spotify_icon.svg.png', style: ButtonStyle.Secondary, tier: 'premium' },
+    { id: 'battlenet', label: 'Battle.net', emojiName: 'ng_battlenet', defaultEmoji: '⚔️', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Battle.net_Logo.svg/512px-Battle.net_Logo.svg.png', style: ButtonStyle.Secondary, tier: 'premium' }
 ];
 
 // --- IMPORTATION ET SYNC AUTOMATIQUE DE TOUS LES EMOJIS SUR LE SERVEUR ---
@@ -350,12 +388,14 @@ async function getOrFetchEmoji(guild, service) {
     return service.defaultEmoji;
 }
 
-async function buildServiceRows(guild) {
+async function buildServiceRows(guild, tier = 'free') {
     const rows = [];
     let currentRow = new ActionRowBuilder();
 
-    for (let i = 0; i < services.length; i++) {
-        const service = services[i];
+    const filteredServices = services.filter(s => s.tier === tier);
+
+    for (let i = 0; i < filteredServices.length; i++) {
+        const service = filteredServices[i];
         const emoji = await getOrFetchEmoji(guild, service);
         const count = await getTursoStockCount(service.id);
 
@@ -372,7 +412,7 @@ async function buildServiceRows(guild) {
 
         currentRow.addComponents(button);
 
-        if ((i + 1) % 5 === 0 || i === services.length - 1) {
+        if ((i + 1) % 5 === 0 || i === filteredServices.length - 1) {
             rows.push(currentRow);
             currentRow = new ActionRowBuilder();
         }
@@ -398,9 +438,11 @@ async function getTursoGlobalSuccessRate() {
 }
 
 // Fonction de création des Embeds du Panel (FR ou EN)
-async function buildPanelEmbed(guild, lang = 'fr') {
+async function buildPanelEmbed(guild, lang = 'fr', tier = 'free') {
     const statsLines = [];
-    for (const service of services) {
+    const filteredServices = services.filter(s => s.tier === tier);
+
+    for (const service of filteredServices) {
         const emoji = await getOrFetchEmoji(guild, service);
         const emojiStr = (typeof emoji === 'string') ? emoji : `<:${emoji.name}:${emoji.id}>`;
         const { rate, total } = await getTursoSuccessRate(service.id);
@@ -442,9 +484,12 @@ async function buildPanelEmbed(guild, lang = 'fr') {
         imageTarget = 'attachment://banner.gif';
     }
 
-    const title = '✨ NextGen Generator';
+    const isPremium = tier === 'premium';
+    const title = isPremium ? '👑 NextGen Premium Generator' : '✨ NextGen Free Generator';
+    const color = isPremium ? '#FFD700' : '#2B2D31'; // Gold for Premium, Dark for Free
+
     const desc = lang === 'en' ? [
-        'Welcome to **NextGen Generator**! Click on a service button below to get your account sent directly to your Direct Messages (DM).',
+        isPremium ? 'Welcome to the **Premium Generator**! 🚀 Exclusive VIP access to our high-quality accounts.' : 'Welcome to **NextGen Generator**! Click on a service button below to get your account sent directly to your Direct Messages (DM).',
         '',
         globalHeader,
         '',
@@ -453,7 +498,7 @@ async function buildPanelEmbed(guild, lang = 'fr') {
         '',
         '*Please rate your account in DMs after generating (Working 🟢 / Not Working 🔴) to update statistics live!*'
     ].join('\n') : [
-        'Bienvenue sur le générateur **NextGen** ! Cliquez sur le bouton d\'un service ci-dessous pour obtenir vos identifiants envoyés directement en Message Privé (DM).',
+        isPremium ? 'Bienvenue sur le **Générateur Premium** ! 🚀 Accès exclusif VIP à nos comptes de haute qualité.' : 'Bienvenue sur le générateur **NextGen** ! Cliquez sur le bouton d\'un service ci-dessous pour obtenir vos identifiants envoyés directement en Message Privé (DM).',
         '',
         globalHeader,
         '',
@@ -466,9 +511,9 @@ async function buildPanelEmbed(guild, lang = 'fr') {
     const embed = new EmbedBuilder()
         .setTitle(title)
         .setDescription(desc)
-        .setColor('#2B2D31')
+        .setColor(color)
         .setImage(imageTarget)
-        .setFooter({ text: lang === 'en' ? 'NextGen • Instant Generation' : 'NextGen • Génération instantanée', iconURL: client.user.displayAvatarURL() })
+        .setFooter({ text: lang === 'en' ? (isPremium ? 'NextGen Premium • Instant Delivery' : 'NextGen • Instant Generation') : (isPremium ? 'NextGen Premium • Livraison instantanée' : 'NextGen • Génération instantanée'), iconURL: client.user.displayAvatarURL() })
         .setTimestamp();
 
     return { embed, bannerAttachment };
@@ -559,43 +604,58 @@ const channelPermissionConfigs = {
 
 function getPermissionOverwrites(guild, channelName) {
     const everyoneRole = guild.roles.everyone;
-    const verifiedRole = guild.roles.cache.get(VERIFIED_ROLE_ID);
+    const notRegRole = guild.roles.cache.find(r => r.name === 'Not Registered');
+    const countryChoiceRole = guild.roles.cache.find(r => r.name === 'Country Choice');
     const overwrites = [];
 
     if (channelName.includes('verify')) {
         overwrites.push({
             id: everyoneRole.id,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
-            deny: [PermissionFlagsBits.SendMessages]
+            deny: [PermissionFlagsBits.ViewChannel]
         });
+        if (notRegRole) {
+            overwrites.push({
+                id: notRegRole.id,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                deny: [PermissionFlagsBits.SendMessages]
+            });
+        }
         return overwrites;
     }
 
+    if (channelName.includes('country')) {
+        overwrites.push({
+            id: everyoneRole.id,
+            deny: [PermissionFlagsBits.ViewChannel]
+        });
+        if (countryChoiceRole) {
+            overwrites.push({
+                id: countryChoiceRole.id,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                deny: [PermissionFlagsBits.SendMessages]
+            });
+        }
+        return overwrites;
+    }
+
+    // Default for all other channels: hide from everyone, not reg, country choice
     overwrites.push({
         id: everyoneRole.id,
         deny: [PermissionFlagsBits.ViewChannel]
     });
+    if (notRegRole) {
+        overwrites.push({ id: notRegRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+    }
+    if (countryChoiceRole) {
+        overwrites.push({ id: countryChoiceRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+    }
 
-    const targetRoleId = verifiedRole ? verifiedRole.id : everyoneRole.id;
     const config = channelPermissionConfigs[channelName] || { readOnly: false };
 
     if (config.readOnly) {
         overwrites.push({
-            id: targetRoleId,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+            id: everyoneRole.id,
             deny: [PermissionFlagsBits.SendMessages]
-        });
-    } else {
-        overwrites.push({
-            id: targetRoleId,
-            allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.AttachFiles,
-                PermissionFlagsBits.EmbedLinks,
-                PermissionFlagsBits.ReadMessageHistory,
-                PermissionFlagsBits.UseApplicationCommands
-            ]
         });
     }
 
@@ -647,7 +707,8 @@ function buildSettingsDashboard(guild) {
             '### 📊 **État Actuel de la Configuration :**',
             `> 📁 **Salon de Logs :** ${logCh ? `<#${logCh}>` : '`Non configuré`'}`,
             `> ⏱️ **Cooldown Générateur :** **${cooldown}s**`,
-            `> 🔑 **Rôle Générateur Requis :** ${reqRole ? `<@&${reqRole}>` : '`Aucun (Tous les membres vérifiés)`'}`,
+            `> 🔑 **Rôle Générateur Free :** ${reqRole ? `<@&${reqRole}>` : '`Aucun (Tous les membres vérifiés)`'}`,
+            `> 👑 **Rôle Générateur Premium :** ${getGuildConfig(guild.id, 'premiumRoleId') ? `<@&${getGuildConfig(guild.id, 'premiumRoleId')}>` : '`Aucun`'}`,
             `> 📊 **Limite Journalière :** ${dailyLimit > 0 ? `**${dailyLimit}** / jour` : '`Illimitée`'}`,
             `> 🛡️ **Rôle Vérifié :** <@&${VERIFIED_ROLE_ID}>`,
             `> 🚀 **Rôle Server Booster :** <@&${BOOSTER_ROLE_ID}>`,
@@ -930,212 +991,107 @@ const userDailyGens = new Map();
 async function registerCommands() {
     const commands = [
         new SlashCommandBuilder()
-            .setName('panel')
-            .setDescription('Affiche le panel de génération NextGen')
-            .addStringOption(option =>
-                option.setName('langue')
-                    .setDescription('Langue du panel (fr / en)')
-                    .setRequired(false)
-                    .addChoices(
-                        { name: 'Français 🇫🇷', value: 'fr' },
-                        { name: 'English 🇬🇧', value: 'en' }
-                    )
+            .setName('deploy')
+            .setDescription('Déploie un panel système dans un salon')
+            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+            .addSubcommand(sub =>
+                sub.setName('generator')
+                    .setDescription('Affiche le panel de génération NextGen')
+                    .addStringOption(option => option.setName('langue').setDescription('Langue (fr/en)').setRequired(false).addChoices({ name: 'Français 🇫🇷', value: 'fr' }, { name: 'English 🇬🇧', value: 'en' }))
+                    .addChannelOption(option => option.setName('salon').setDescription('Salon d\'envoi').addChannelTypes(ChannelType.GuildText).setRequired(false))
+                    .addStringOption(option => option.setName('tier').setDescription('Type de panel').setRequired(false).addChoices({ name: 'Gratuit ⭐', value: 'free' }, { name: 'Premium 👑', value: 'premium' }))
             )
-            .addChannelOption(option =>
-                option.setName('salon')
-                    .setDescription('Salon d\'envoi (optionnel)')
-                    .addChannelTypes(ChannelType.GuildText)
-                    .setRequired(false)
+            .addSubcommand(sub =>
+                sub.setName('ticket')
+                    .setDescription('Déploie le panel de création de tickets')
+                    .addStringOption(option => option.setName('langue').setDescription('Langue (fr/en)').setRequired(false).addChoices({ name: 'Français 🇫🇷', value: 'fr' }, { name: 'English 🇬🇧', value: 'en' }))
+                    .addChannelOption(option => option.setName('salon').setDescription('Salon d\'envoi').addChannelTypes(ChannelType.GuildText).setRequired(false))
+            )
+            .addSubcommand(sub =>
+                sub.setName('faq')
+                    .setDescription('Déploie le panneau de la Foire Aux Questions (FAQ)')
+                    .addStringOption(option => option.setName('langue').setDescription('Langue (fr/en)').setRequired(false).addChoices({ name: 'Français 🇫🇷', value: 'fr' }, { name: 'English 🇬🇧', value: 'en' }))
+                    .addChannelOption(option => option.setName('salon').setDescription('Salon d\'envoi').addChannelTypes(ChannelType.GuildText).setRequired(false))
+            )
+            .addSubcommand(sub =>
+                sub.setName('verify')
+                    .setDescription('Déploie le message de vérification du serveur')
+                    .addStringOption(option => option.setName('langue').setDescription('Langue (fr/en)').setRequired(false).addChoices({ name: 'Français 🇫🇷', value: 'fr' }, { name: 'English 🇬🇧', value: 'en' }))
+                    .addChannelOption(option => option.setName('salon').setDescription('Salon d\'envoi').addChannelTypes(ChannelType.GuildText).setRequired(false))
+            )
+            .addSubcommand(sub =>
+                sub.setName('proof-rules')
+                    .setDescription('Déploie et épingle les consignes du salon proof')
+                    .addStringOption(option => option.setName('langue').setDescription('Langue (fr/en)').setRequired(false).addChoices({ name: 'Français 🇫🇷', value: 'fr' }, { name: 'English 🇬🇧', value: 'en' }))
+                    .addChannelOption(option => option.setName('salon').setDescription('Salon d\'envoi').addChannelTypes(ChannelType.GuildText).setRequired(false))
             ),
         new SlashCommandBuilder()
-            .setName('setup-staff')
-            .setDescription('Crée la catégorie STAFF sécurisée avec salons annonces, chat et commandes')
-            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+            .setName('setup')
+            .setDescription('Configuration globale du serveur')
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+            .addSubcommand(sub => sub.setName('staff').setDescription('Crée la catégorie STAFF sécurisée'))
+            .addSubcommand(sub => sub.setName('roles').setDescription('Duplique et traduit tous les rôles du serveur en anglais'))
+            .addSubcommand(sub => sub.setName('channels').setDescription('Crée l\'arborescence des salons du serveur'))
+            .addSubcommand(sub => sub.setName('permissions').setDescription('Ajuste les permissions globales des rôles et salons'))
+            .addSubcommand(sub => sub.setName('en-fr').setDescription('Purge le serveur et déploie le système de sécurité complet')),
         new SlashCommandBuilder()
-            .setName('traduct-roles')
-            .setDescription('Duplique et traduit tous les rôles du serveur en version anglaise')
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
-        new SlashCommandBuilder()
-            .setName('settings')
-            .setDescription('Ouvre le panneau de configuration interactif (style DraftBot)')
-            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-        new SlashCommandBuilder()
-            .setName('en-fr')
-            .setDescription('Purge le serveur et déploie le système avec Not Registered & Country Choice')
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+            .setName('config')
+            .setDescription('Configuration du bot (Dashboard et autres options)')
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+            .addSubcommand(sub => sub.setName('dashboard').setDescription('Ouvre le panneau de configuration interactif (Dashboard)'))
+            .addSubcommand(sub => 
+                sub.setName('logs')
+                    .setDescription('Définit le salon de logs pour le bot')
+                    .addChannelOption(option => option.setName('salon').setDescription('Salon textuel de logs').addChannelTypes(ChannelType.GuildText).setRequired(true))
+            )
+            .addSubcommand(sub => 
+                sub.setName('gen')
+                    .setDescription('Configuration rapide du générateur')
+                    .addIntegerOption(option => option.setName('cooldown').setDescription('Temps d\'attente (en s)'))
+                    .addRoleOption(option => option.setName('role_requis').setDescription('Rôle requis (générateur basique)'))
+                    .addRoleOption(option => option.setName('role_premium').setDescription('Rôle requis (générateur premium)'))
+                    .addIntegerOption(option => option.setName('limite_journaliere').setDescription('Limite/jour (0=illimité)'))
+            ),
         new SlashCommandBuilder()
             .setName('broadcast')
             .setDescription('Envoie une annonce simultanément dans les salons Français et Anglais')
-            .addStringOption(option =>
-                option.setName('message_fr')
-                    .setDescription('Message de l\'annonce en français')
-                    .setRequired(true)
-            )
-            .addStringOption(option =>
-                option.setName('message_en')
-                    .setDescription('Message de l\'annonce en anglais (optionnel)')
-                    .setRequired(false)
-            )
+            .addStringOption(option => option.setName('message_fr').setDescription('Message en français').setRequired(true))
+            .addStringOption(option => option.setName('message_en').setDescription('Message en anglais (optionnel)').setRequired(false))
             .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
         new SlashCommandBuilder()
-            .setName('setup-channel')
-            .setDescription('Crée l\'arborescence des salons du serveur')
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
-        new SlashCommandBuilder()
-            .setName('setup-channel-perm')
-            .setDescription('Ajuste les permissions sur tous les salons du serveur')
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
-        new SlashCommandBuilder()
-            .setName('ticket-panel')
-            .setDescription('Déploie le panel de création de tickets')
-            .addStringOption(option =>
-                option.setName('langue')
-                    .setDescription('Langue du panel (fr / en)')
-                    .setRequired(false)
-                    .addChoices(
-                        { name: 'Français 🇫🇷', value: 'fr' },
-                        { name: 'English 🇬🇧', value: 'en' }
-                    )
-            )
-            .addChannelOption(option =>
-                option.setName('salon')
-                    .setDescription('Salon d\'envoi (optionnel)')
-                    .addChannelTypes(ChannelType.GuildText)
-                    .setRequired(false)
-            ),
-        new SlashCommandBuilder()
-            .setName('proof-rules')
-            .setDescription('Déploie et épingle les consignes du salon proof')
-            .addStringOption(option =>
-                option.setName('langue')
-                    .setDescription('Langue des consignes (fr / en)')
-                    .setRequired(false)
-                    .addChoices(
-                        { name: 'Français 🇫🇷', value: 'fr' },
-                        { name: 'English 🇬🇧', value: 'en' }
-                    )
-            )
-            .addChannelOption(option =>
-                option.setName('salon')
-                    .setDescription('Salon d\'envoi (optionnel)')
-                    .addChannelTypes(ChannelType.GuildText)
-                    .setRequired(false)
-            )
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
-        new SlashCommandBuilder()
-            .setName('faq-panel')
-            .setDescription('Déploie le panneau de la Foire Aux Questions (FAQ)')
-            .addStringOption(option =>
-                option.setName('langue')
-                    .setDescription('Langue de la FAQ (fr / en)')
-                    .setRequired(false)
-                    .addChoices(
-                        { name: 'Français 🇫🇷', value: 'fr' },
-                        { name: 'English 🇬🇧', value: 'en' }
-                    )
-            )
-            .addChannelOption(option =>
-                option.setName('salon')
-                    .setDescription('Salon d\'envoi (optionnel)')
-                    .addChannelTypes(ChannelType.GuildText)
-                    .setRequired(false)
-            )
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
-        new SlashCommandBuilder()
-            .setName('verify')
-            .setDescription('Déploie le message de vérification du serveur')
-            .addStringOption(option =>
-                option.setName('langue')
-                    .setDescription('Langue du panneau (fr / en)')
-                    .setRequired(false)
-                    .addChoices(
-                        { name: 'Français 🇫🇷', value: 'fr' },
-                        { name: 'English 🇬🇧', value: 'en' }
-                    )
-            )
-            .addChannelOption(option =>
-                option.setName('salon')
-                    .setDescription('Salon d\'envoi (optionnel)')
-                    .addChannelTypes(ChannelType.GuildText)
-                    .setRequired(false)
-            ),
-        new SlashCommandBuilder()
-            .setName('logs')
-            .setDescription('Définit le salon de logs pour le bot')
-            .addChannelOption(option =>
-                option.setName('salon')
-                    .setDescription('Salon textuel de logs')
-                    .addChannelTypes(ChannelType.GuildText)
-                    .setRequired(true)
-            )
-            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-        new SlashCommandBuilder()
-            .setName('settings-gen')
-            .setDescription('Configuration rapide du générateur (cooldown, rôle, limite)')
-            .addIntegerOption(option =>
-                option.setName('cooldown')
-                    .setDescription('Temps d\'attente entre 2 générations (en secondes)')
-                    .setRequired(false)
-            )
-            .addRoleOption(option =>
-                option.setName('role_requis')
-                    .setDescription('Rôle requis pour utiliser le générateur')
-                    .setRequired(false)
-            )
-            .addIntegerOption(option =>
-                option.setName('limite_journaliere')
-                    .setDescription('Nombre max de générations par jour (0 = illimité)')
-                    .setRequired(false)
-            )
-            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-        new SlashCommandBuilder()
-            .setName('restock')
-            .setDescription('Ajoute du stock pour un service (multilingue FR/EN)')
-            .addStringOption(option =>
-                option.setName('service')
-                    .setDescription('Le service à restocker')
-                    .setRequired(true)
-                    .addChoices(...services.map(s => ({ name: s.label, value: s.label })))
-            )
-            .addAttachmentOption(option =>
-                option.setName('fichier')
-                    .setDescription('Fichier texte (.txt) contenant les combos')
-                    .setRequired(true)
-            )
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
-        new SlashCommandBuilder()
             .setName('giveaway')
-            .setDescription('Lance un giveaway bilingue simultané (FR & EN)')
-            .addStringOption(option =>
-                option.setName('prix')
-                    .setDescription('Le lot à gagner')
-                    .setRequired(true)
-            )
-            .addStringOption(option =>
-                option.setName('duree')
-                    .setDescription('Durée (ex: 10m, 1h, 24h)')
-                    .setRequired(true)
-            )
-            .addIntegerOption(option =>
-                option.setName('gagnants')
-                    .setDescription('Nombre de gagnants (1 par défaut)')
-                    .setRequired(false)
-            )
+            .setDescription('Lance un giveaway bilingue simultané')
+            .addStringOption(option => option.setName('prix').setDescription('Le lot à gagner').setRequired(true))
+            .addStringOption(option => option.setName('duree').setDescription('Durée (ex: 10m, 1h, 24h)').setRequired(true))
+            .addIntegerOption(option => option.setName('gagnants').setDescription('Nombre de gagnants (1 par défaut)').setRequired(false))
             .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
         new SlashCommandBuilder()
             .setName('drops')
             .setDescription('Droppe des comptes/combos dans le salon drop')
-            .addStringOption(option =>
-                option.setName('service')
-                    .setDescription('Nom du service')
-                    .setRequired(true)
-            )
-            .addStringOption(option =>
-                option.setName('combos')
-                    .setDescription('Les identifiants/combos à dropper')
-                    .setRequired(true)
-            )
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+            .addStringOption(option => option.setName('service').setDescription('Nom du service').setRequired(true))
+            .addStringOption(option => option.setName('combos').setDescription('Les identifiants/combos à dropper').setRequired(true))
+            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+        new SlashCommandBuilder()
+            .setName('restock')
+            .setDescription('Ajoute du stock pour un service (multilingue FR/EN)')
+            .addStringOption(option => option.setName('service').setDescription('Le service à restocker').setRequired(true).addChoices(...services.map(s => ({ name: s.label, value: s.label }))))
+            .addAttachmentOption(option => option.setName('fichier').setDescription('Fichier texte (.txt) contenant les combos').setRequired(true))
+            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+        new SlashCommandBuilder()
+            .setName('combo-cleaner')
+            .setDescription('Nettoie un fichier de combos via l\'IA Groq (Llama-3.3)')
+            .addAttachmentOption(option => option.setName('fichier').setDescription('Fichier texte (.txt) contenant les combos sales').setRequired(true))
+            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+        new SlashCommandBuilder()
+            .setName('give-premgen')
+            .setDescription('Donne l\'accès Premium Générateur à un utilisateur')
+            .addUserOption(option => option.setName('utilisateur').setDescription('L\'utilisateur à qui donner l\'accès premium').setRequired(true))
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+        new SlashCommandBuilder()
+            .setName('remove-premgen')
+            .setDescription('Retire l\'accès Premium Générateur à un utilisateur')
+            .addUserOption(option => option.setName('utilisateur').setDescription('L\'utilisateur à qui retirer l\'accès premium').setRequired(true))
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     ];
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -1161,6 +1117,58 @@ client.once('clientReady', async () => {
         await cacheGuildInvites(guild);
         await preloadServerEmojis(guild);
     }
+
+    // Auto-ping Keep-Alive (Render) - Toutes les 5 minutes
+    setInterval(() => {
+        fetch(`${BASE_URL}/healthz`).catch(() => {});
+    }, 300000);
+
+    // Cron pour bump Discadia tous les jours à 15h45
+    cron.schedule('45 15 * * *', () => {
+        client.guilds.cache.forEach(async (guild) => {
+            const staffCh = guild.channels.cache.find(c => c.name === '💬・staff-chat');
+            if (staffCh && staffCh.isTextBased()) {
+                await staffCh.send('⏰ **Rappel Bump :** Il est 15h45, c\'est l\'heure de bumper le serveur sur Discadia ! `/bump`');
+            }
+        });
+    });
+
+    // Auto-refresh des panels toutes les 5 secondes
+    setInterval(async () => {
+        const panels = getPanels();
+        for (const guildId of Object.keys(panels)) {
+            const guild = client.guilds.cache.get(guildId);
+            if (!guild) continue;
+            
+            const pData = panels[guildId];
+            const updatePanel = async (panelKey) => {
+                if (!pData[panelKey]) return;
+                try {
+                    const ch = guild.channels.cache.get(pData[panelKey].channelId);
+                    if (ch) {
+                        const msg = await ch.messages.fetch(pData[panelKey].messageId).catch(() => null);
+                        if (msg) {
+                            const lang = panelKey.startsWith('en') ? 'en' : 'fr';
+                            const tier = pData[panelKey].tier || 'free';
+                            const embedData = await buildPanelEmbed(guild, lang, tier);
+                            const components = await buildServiceRows(guild, tier);
+                            await msg.edit({ embeds: [embedData.embed], components: components });
+                        } else {
+                            removePanel(guildId, panelKey);
+                        }
+                    } else {
+                        removePanel(guildId, panelKey);
+                    }
+                } catch (e) {
+                    removePanel(guildId, panelKey);
+                }
+            };
+            
+            for (const key of Object.keys(pData)) {
+                await updatePanel(key);
+            }
+        }
+    }, 5000);
 });
 
 // Événement d'arrivée de membres
@@ -1356,7 +1364,7 @@ client.on('interactionCreate', async (interaction) => {
         if (interaction.isChatInputCommand()) {
             const { commandName } = interaction;
 
-            if (commandName === 'settings') {
+            if (commandName === 'config' && interaction.options.getSubcommand() === 'dashboard') {
                 const dashboard = buildSettingsDashboard(interaction.guild);
                 await interaction.reply({
                     ...dashboard,
@@ -1364,8 +1372,8 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // --- COMMANDE /setup-staff ---
-            else if (commandName === 'setup-staff') {
+            // --- COMMANDE /setup staff ---
+            else if (commandName === 'setup' && interaction.options.getSubcommand() === 'staff') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const guild = interaction.guild;
@@ -1417,8 +1425,8 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.editReply({ embeds: [staffEmbed] });
             }
 
-            // --- COMMANDE /traduct-roles ---
-            else if (commandName === 'traduct-roles') {
+            // --- COMMANDE /setup roles ---
+            else if (commandName === 'setup' && interaction.options.getSubcommand() === 'roles') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const guild = interaction.guild;
@@ -1491,8 +1499,8 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.editReply({ embeds: [resultEmbed] });
             }
 
-            // --- COMMANDE /en-fr ---
-            else if (commandName === 'en-fr') {
+            // --- COMMANDE /setup en-fr ---
+            else if (commandName === 'setup' && interaction.options.getSubcommand() === 'en-fr') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const guild = interaction.guild;
@@ -1798,8 +1806,8 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // --- COMMANDE /proof-rules ---
-            else if (commandName === 'proof-rules') {
+            // --- COMMANDE /deploy proof-rules ---
+            else if (commandName === 'deploy' && interaction.options.getSubcommand() === 'proof-rules') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const guild = interaction.guild;
@@ -1820,8 +1828,8 @@ client.on('interactionCreate', async (interaction) => {
                 }
             }
 
-            // --- COMMANDE /faq-panel ---
-            else if (commandName === 'faq-panel') {
+            // --- COMMANDE /deploy faq ---
+            else if (commandName === 'deploy' && interaction.options.getSubcommand() === 'faq') {
                 await interaction.deferReply();
 
                 const guild = interaction.guild;
@@ -1881,8 +1889,8 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // --- COMMANDE /ticket-panel ---
-            else if (commandName === 'ticket-panel') {
+            // --- COMMANDE /deploy ticket ---
+            else if (commandName === 'deploy' && interaction.options.getSubcommand() === 'ticket') {
                 await interaction.deferReply();
 
                 const targetChannel = interaction.options.getChannel('salon') || interaction.channel;
@@ -1923,8 +1931,8 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // --- COMMANDE /verify ---
-            else if (commandName === 'verify') {
+            // --- COMMANDE /deploy verify ---
+            else if (commandName === 'deploy' && interaction.options.getSubcommand() === 'verify') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const guild = interaction.guild;
@@ -1972,33 +1980,70 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // --- COMMANDE /panel ---
-            else if (commandName === 'panel') {
+            // --- COMMANDE /deploy generator ---
+            else if (commandName === 'deploy' && interaction.options.getSubcommand() === 'generator') {
                 await interaction.deferReply();
 
                 const targetChannel = interaction.options.getChannel('salon') || interaction.channel;
                 const langOpt = interaction.options.getString('langue');
-                const isEnglishChannel = targetChannel.name.includes('en') || targetChannel.name.includes('chat') || targetChannel.name.includes('free-gen') || targetChannel.name.includes('announcement');
+                const tierOpt = interaction.options.getString('tier');
+
+                const isEnglishChannel = targetChannel.name.includes('en') || targetChannel.name.includes('chat') || targetChannel.name.includes('free-gen') || targetChannel.name.includes('premium-gen') || targetChannel.name.includes('announcement');
                 const lang = langOpt || (isEnglishChannel ? 'en' : 'fr');
 
-                const panelData = await buildPanelEmbed(interaction.guild, lang);
-                const components = await buildServiceRows(interaction.guild);
+                const isPremiumChannel = targetChannel.name.includes('premium');
+                const tier = tierOpt || (isPremiumChannel ? 'premium' : 'free');
+
+                const panelData = await buildPanelEmbed(interaction.guild, lang, tier);
+                const components = await buildServiceRows(interaction.guild, tier);
 
                 const replyPayload = { embeds: [panelData.embed], components: components };
                 if (panelData.bannerAttachment) {
                     replyPayload.files = [panelData.bannerAttachment];
                 }
 
-                await targetChannel.send(replyPayload);
+                const msg = await targetChannel.send(replyPayload);
+                
+                // Enregistre l'ID du panel pour l'auto-refresh
+                const panelKey = `${lang}_${tier}_${targetChannel.id}`;
+                setPanel(interaction.guild.id, panelKey, targetChannel.id, msg.id, tier);
 
                 await interaction.editReply({
-                    content: `✅ Panel du générateur (${lang.toUpperCase()}) envoyé dans <#${targetChannel.id}>.`
+                    content: `✅ Panel générateur (${tier.toUpperCase()}) déployé dans <#${targetChannel.id}>.`
                 });
             }
+            // --- COMMANDE /deploy status ---
+            else if (commandName === 'deploy' && interaction.options.getSubcommand() === 'status') {
+                await interaction.deferReply();
+                const targetChannel = interaction.options.getChannel('salon') || interaction.channel;
+                const langOpt = interaction.options.getString('langue');
+                const lang = langOpt || 'fr';
 
-            else if (commandName === 'settings-gen') {
+                const statusTitle = lang === 'en' ? '🟢 System Status' : '🟢 Statut du Système';
+                const statusDesc = lang === 'en' 
+                    ? `**NextG3n Bot :** <a:ng_online:1532399539187617792> Online\n\nAll systems are fully operational.` 
+                    : `**NextG3n Bot :** <a:ng_online:1532399539187617792> En ligne\n\nTous les systèmes sont opérationnels.`;
+
+                const statusEmbed = new EmbedBuilder()
+                    .setTitle(statusTitle)
+                    .setDescription(statusDesc)
+                    .setColor('#43B581')
+                    .setTimestamp()
+                    .setFooter({ text: 'NextGen Status', iconURL: interaction.client.user.displayAvatarURL() });
+
+                await targetChannel.send({ embeds: [statusEmbed] });
+                await interaction.editReply({ content: `✅ Panel de statut déployé dans <#${targetChannel.id}>.` });
+            }
+            else if (commandName === 'config' && interaction.options.getSubcommand() === 'logs') {
+                const logCh = interaction.options.getChannel('salon');
+                setGuildConfig(interaction.guild.id, 'logsChannelId', logCh.id);
+                await interaction.reply({ content: `✅ Salon des logs défini sur <#${logCh.id}>`, flags: MessageFlags.Ephemeral });
+            }
+
+            else if (commandName === 'config' && interaction.options.getSubcommand() === 'gen') {
                 const cooldownInput = interaction.options.getInteger('cooldown');
                 const roleInput = interaction.options.getRole('role_requis');
+                const rolePremiumInput = interaction.options.getRole('role_premium');
                 const limitInput = interaction.options.getInteger('limite_journaliere');
 
                 if (cooldownInput !== null) {
@@ -2007,24 +2052,29 @@ client.on('interactionCreate', async (interaction) => {
                 if (roleInput !== null) {
                     setGuildConfig(interaction.guild.id, 'requiredRoleId', roleInput.id);
                 }
+                if (rolePremiumInput !== null) {
+                    setGuildConfig(interaction.guild.id, 'premiumRoleId', rolePremiumInput.id);
+                }
                 if (limitInput !== null) {
                     setGuildConfig(interaction.guild.id, 'dailyLimit', limitInput);
                 }
 
                 const currentCooldown = getGuildConfig(interaction.guild.id, 'cooldown') ?? 60;
                 const currentReqRole = getGuildConfig(interaction.guild.id, 'requiredRoleId');
+                const currentPremiumRole = getGuildConfig(interaction.guild.id, 'premiumRoleId');
                 const currentLimit = getGuildConfig(interaction.guild.id, 'dailyLimit') ?? 0;
 
                 const settingsEmbed = new EmbedBuilder()
-                    .setTitle('⚙️ Configuration du Générateur NextGen')
+                    .setTitle('⚡ Configuration du Générateur NextGen')
                     .setDescription([
                         'Voici la configuration actuelle du générateur pour votre serveur :',
                         '',
                         `⏱️ **Cooldown entre 2 générations :** **${currentCooldown} seconde(s)**`,
-                        `🔑 **Rôle requis :** ${currentReqRole ? `<@&${currentReqRole}>` : '`Aucun (Ouvert aux membres vérifiés)`'}`,
+                        `🔑 **Rôle requis (Free) :** ${currentReqRole ? `<@&${currentReqRole}>` : '`Aucun (Ouvert aux membres vérifiés)`'}`,
+                        `👑 **Rôle Premium requis :** ${currentPremiumRole ? `<@&${currentPremiumRole}>` : '`Aucun`'}`,
                         `📊 **Limite journalière :** ${currentLimit > 0 ? `**${currentLimit}** générations par jour` : '`Illimitée`'}`,
                         '',
-                        '*Utilisez les paramètres de la commande `/settings-gen` ou le dashboard `/settings` pour modifier ces valeurs.*'
+                        '*Utilisez les paramètres de la commande `/config gen` ou le dashboard `/settings` pour modifier ces valeurs.*'
                     ].join('\n'))
                     .setColor('#5865F2')
                     .setTimestamp();
@@ -2234,6 +2284,106 @@ client.on('interactionCreate', async (interaction) => {
                 await sendLog(guild, logEmbed);
             }
 
+            else if (commandName === 'combo-cleaner') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                const attachment = interaction.options.getAttachment('fichier');
+                const groqApiKey = process.env.GROQ_API_KEY;
+
+                if (!groqApiKey) {
+                    return interaction.editReply({ content: '❌ Clé API Groq manquante dans la configuration (.env GROQ_API_KEY).' });
+                }
+
+                try {
+                    const response = await fetch(attachment.url);
+                    let textContent = await response.text();
+
+                    if (textContent.length > 30000) {
+                        return interaction.editReply({ content: '❌ Fichier trop volumineux. Veuillez le diviser (max ~30000 caractères).' });
+                    }
+
+                    const prompt = `Je vais te fournir une liste de combos sales. Ta tâche est de les nettoyer pour ne garder QUE le format "email:password" (ou "username:password"). Enlève toutes les informations inutiles comme "Expire : 2437", "cokkie", etc.
+Ne rajoute AUCUN texte, aucun bonjour, aucune explication. Donne uniquement la liste nettoyée ligne par ligne.
+
+Combos:
+${textContent}`;
+
+                    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${groqApiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            model: 'llama-3.3-70b-versatile',
+                            messages: [
+                                { role: 'user', content: prompt }
+                            ],
+                            temperature: 0.1,
+                            max_tokens: 4000
+                        })
+                    });
+
+                    if (!groqRes.ok) {
+                        const errText = await groqRes.text();
+                        console.error('Groq Error:', errText);
+                        return interaction.editReply({ content: "❌ Erreur de l'API Groq. Vérifiez la clé." });
+                    }
+
+                    const groqData = await groqRes.json();
+                    const cleanedContent = groqData.choices[0].message.content.trim();
+
+                    const buffer = Buffer.from(cleanedContent, 'utf-8');
+                    const attachmentToSend = new AttachmentBuilder(buffer, { name: 'combos_cleaned.txt' });
+
+                    await interaction.editReply({
+                        content: "✅ Voici vos combos nettoyés par l'IA :",
+                        files: [attachmentToSend]
+                    });
+
+                } catch (err) {
+                    console.error('Erreur combo-cleaner :', err);
+                    await interaction.editReply({ content: '❌ Une erreur est survenue lors du nettoyage.' });
+                }
+            }
+            else if (commandName === 'give-premgen') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const targetUser = interaction.options.getUser('utilisateur');
+                const premiumRoleId = getGuildConfig(interaction.guild.id, 'premiumRoleId');
+                
+                if (!premiumRoleId) {
+                    return interaction.editReply({ content: "❌ Aucun rôle Premium n'est configuré sur ce serveur. Configurez-le via `/config gen` d'abord." });
+                }
+
+                try {
+                    const member = await interaction.guild.members.fetch(targetUser.id);
+                    await member.roles.add(premiumRoleId);
+                    await interaction.editReply({ content: `✅ Le rôle Premium Générateur (<@&${premiumRoleId}>) a été ajouté à ${targetUser}.` });
+                } catch (error) {
+                    console.error(error);
+                    await interaction.editReply({ content: `❌ Impossible d'ajouter le rôle. Vérifiez que mes permissions sont correctes et que mon rôle est au-dessus du rôle Premium.` });
+                }
+            }
+
+            else if (commandName === 'remove-premgen') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const targetUser = interaction.options.getUser('utilisateur');
+                const premiumRoleId = getGuildConfig(interaction.guild.id, 'premiumRoleId');
+                
+                if (!premiumRoleId) {
+                    return interaction.editReply({ content: "❌ Aucun rôle Premium n'est configuré sur ce serveur." });
+                }
+
+                try {
+                    const member = await interaction.guild.members.fetch(targetUser.id);
+                    await member.roles.remove(premiumRoleId);
+                    await interaction.editReply({ content: `✅ Le rôle Premium Générateur (<@&${premiumRoleId}>) a été retiré à ${targetUser}.` });
+                } catch (error) {
+                    console.error(error);
+                    await interaction.editReply({ content: `❌ Impossible de retirer le rôle. Vérifiez mes permissions.` });
+                }
+            }
+
             else if (commandName === 'restock') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -2324,7 +2474,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
             }
 
-            else if (commandName === 'setup-channel') {
+            else if (commandName === 'setup' && interaction.options.getSubcommand() === 'channels') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const guild = interaction.guild;
@@ -2410,7 +2560,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
             }
 
-            else if (commandName === 'setup-channel-perm') {
+            else if (commandName === 'setup' && interaction.options.getSubcommand() === 'permissions') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const guild = interaction.guild;
@@ -2418,14 +2568,16 @@ client.on('interactionCreate', async (interaction) => {
 
                 try {
                     const channels = await guild.channels.fetch();
+                    const everyoneRole = guild.roles.everyone;
 
+                    // Update channels
                     for (const [id, ch] of channels) {
-                        if (ch && ch.type === ChannelType.GuildText && (channelPermissionConfigs[ch.name] || ch.name.includes('verify'))) {
+                        if (ch && ch.type === ChannelType.GuildText && (channelPermissionConfigs[ch.name] || ch.name.includes('verify') || ch.name.includes('country'))) {
                             const overwrites = getPermissionOverwrites(guild, ch.name);
                             await ch.permissionOverwrites.set(overwrites);
 
-                            if (ch.name === '✅・proof') {
-                                await sendProofRuleBanner(ch);
+                            if (ch.name === '✅・proof' || ch.name === '✅・proofs') {
+                                await sendProofRuleBanner(ch, ch.name.includes('proofs') ? 'en' : 'fr');
                             }
 
                             const permType = channelPermissionConfigs[ch.name]?.readOnly 
@@ -2436,18 +2588,60 @@ client.on('interactionCreate', async (interaction) => {
                         }
                     }
 
+                    // Setup role global perms
+                    const frRole = guild.roles.cache.find(r => r.name === '🇫🇷 Français');
+                    const enRole = guild.roles.cache.find(r => r.name === '🇬🇧 English');
+                    const countryChoiceRole = guild.roles.cache.find(r => r.name === 'Country Choice');
+                    const notRegRole = guild.roles.cache.find(r => r.name === 'Not Registered');
+                    
+                    const ownerRoleFr = guild.roles.cache.find(r => r.name.toLowerCase() === 'fondateur');
+                    const ownerRoleEn = guild.roles.cache.find(r => r.name.toLowerCase() === 'founder');
+                    const adminRoleFr = guild.roles.cache.find(r => r.name.toLowerCase() === 'administrateur');
+                    const adminRoleEn = guild.roles.cache.find(r => r.name.toLowerCase() === 'administrator');
+                    const modRoleFr = guild.roles.cache.find(r => r.name.toLowerCase() === 'modérateur');
+                    const modRoleEn = guild.roles.cache.find(r => r.name.toLowerCase() === 'moderator');
+
+                    const setAdminPerms = async (role) => {
+                        if (role) await role.setPermissions([PermissionFlagsBits.Administrator]);
+                    };
+                    const setModPerms = async (role) => {
+                        if (role) await role.setPermissions([
+                            PermissionFlagsBits.ManageMessages, 
+                            PermissionFlagsBits.KickMembers, 
+                            PermissionFlagsBits.BanMembers, 
+                            PermissionFlagsBits.MuteMembers, 
+                            PermissionFlagsBits.ViewAuditLog, 
+                            PermissionFlagsBits.ManageChannels
+                        ]);
+                    };
+
+                    await setAdminPerms(ownerRoleFr);
+                    await setAdminPerms(ownerRoleEn);
+                    await setAdminPerms(adminRoleFr);
+                    await setAdminPerms(adminRoleEn);
+                    await setModPerms(modRoleFr);
+                    await setModPerms(modRoleEn);
+
+                    // Supprime les perms inutiles du rôle verified
+                    const verifiedRole = guild.roles.cache.get(VERIFIED_ROLE_ID);
+                    if (verifiedRole) {
+                        await verifiedRole.setPermissions([]);
+                    }
+                    if (countryChoiceRole) await countryChoiceRole.setPermissions([]);
+                    if (notRegRole) await notRegRole.setPermissions([]);
+
                     const permEmbed = new EmbedBuilder()
                         .setTitle('🛡️ Permissions Mises à Jour')
                         .setDescription(updatedChannels.length > 0 
-                            ? `Les permissions ont été ajustées sur les salons :\n\n${updatedChannels.join('\n')}`
-                            : '⚠️ Aucun salon trouvé.')
+                            ? `Les permissions ont été ajustées sur les salons suivants :\n\n${updatedChannels.join('\n')}\n\n*Les permissions des rôles Owner, Mod et Verified ont également été corrigées.*`
+                            : '⚠️ Aucun salon trouvé mais rôles mis à jour.')
                         .setColor('#5865F2')
                         .setTimestamp();
 
                     await interaction.editReply({ embeds: [permEmbed] });
 
                 } catch (error) {
-                    console.error('Erreur /setup-channel-perm :', error);
+                    console.error('Erreur /setup permissions :', error);
                     await interaction.editReply({
                         content: '❌ Erreur lors de la mise à jour.'
                     });
@@ -2607,6 +2801,7 @@ client.on('interactionCreate', async (interaction) => {
             else if (customId === 'settings_btn_reset') {
                 setGuildConfig(guild.id, 'cooldown', 60);
                 setGuildConfig(guild.id, 'requiredRoleId', null);
+                setGuildConfig(guild.id, 'premiumRoleId', null);
                 setGuildConfig(guild.id, 'dailyLimit', 0);
 
                 await interaction.reply({
@@ -2677,11 +2872,20 @@ client.on('interactionCreate', async (interaction) => {
                 const serviceName = serviceObj ? serviceObj.label : serviceId;
 
                 const reqRoleId = getGuildConfig(guild.id, 'requiredRoleId');
-                if (reqRoleId) {
-                    const member = await guild.members.fetch(user.id).catch(() => null);
-                    if (member && !member.roles.cache.has(reqRoleId)) {
+                const premiumRoleId = getGuildConfig(guild.id, 'premiumRoleId');
+                const member = await guild.members.fetch(user.id).catch(() => null);
+
+                if (reqRoleId && member && !member.roles.cache.has(reqRoleId)) {
+                    return interaction.reply({
+                        content: `⚠️ Vous devez posséder le rôle <@&${reqRoleId}> pour utiliser le générateur.`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                if (serviceObj && serviceObj.tier === 'premium') {
+                    if (premiumRoleId && member && !member.roles.cache.has(premiumRoleId)) {
                         return interaction.reply({
-                            content: `⚠️ Vous devez posséder le rôle <@&${reqRoleId}> pour utiliser le générateur.`,
+                            content: `👑 **Accès Refusé** : Le service **${serviceName}** est réservé aux membres Premium. Vous devez posséder le rôle VIP <@&${premiumRoleId}> pour générer.`,
                             flags: MessageFlags.Ephemeral
                         });
                     }
@@ -2928,3 +3132,5 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
+
