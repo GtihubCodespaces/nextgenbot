@@ -318,6 +318,22 @@ async function buildServiceRows(guild) {
     return rows;
 }
 
+async function getTursoGlobalSuccessRate() {
+    try {
+        const res = await turso.execute({
+            sql: 'SELECT SUM(is_working) as success, COUNT(*) as total FROM feedback'
+        });
+        const row = res.rows[0];
+        const total = Number(row?.total || 0);
+        if (total === 0) return { rate: 0, total: 0 };
+        const success = Number(row?.success || 0);
+        const rate = Math.round((success / total) * 100);
+        return { rate, total };
+    } catch {
+        return { rate: 0, total: 0 };
+    }
+}
+
 // Fonction de création des Embeds du Panel (FR ou EN)
 async function buildPanelEmbed(guild, lang = 'fr') {
     const statsLines = [];
@@ -326,11 +342,31 @@ async function buildPanelEmbed(guild, lang = 'fr') {
         const emojiStr = (typeof emoji === 'string') ? emoji : `<:${emoji.name}:${emoji.id}>`;
         const { rate, total } = await getTursoSuccessRate(service.id);
         
-        if (lang === 'en') {
-            statsLines.push(`${emojiStr} **${service.label}** — \`${rate}% success\` *(${total} reviews)*`);
+        if (total === 0) {
+            if (lang === 'en') {
+                statsLines.push(`${emojiStr} **${service.label}** — ⏳ *Waiting for results...* \`(0 reviews)\``);
+            } else {
+                statsLines.push(`${emojiStr} **${service.label}** — ⏳ *Attente des résultats...* \`(0 avis)\``);
+            }
         } else {
-            statsLines.push(`${emojiStr} **${service.label}** — \`${rate}% de réussite\` *(${total} avis)*`);
+            if (lang === 'en') {
+                statsLines.push(`${emojiStr} **${service.label}** — \`${rate}% success\` *(${total} reviews)*`);
+            } else {
+                statsLines.push(`${emojiStr} **${service.label}** — \`${rate}% de réussite\` *(${total} avis)*`);
+            }
         }
+    }
+
+    const globalStats = await getTursoGlobalSuccessRate();
+    let globalHeader = '';
+    if (lang === 'en') {
+        globalHeader = globalStats.total > 0 
+            ? `⭐ **Overall Success Rate:** \`${globalStats.rate}% success\` *(${globalStats.total} total reviews)*`
+            : `⭐ **Overall Success Rate:** ⏳ *Waiting for first reviews...*`;
+    } else {
+        globalHeader = globalStats.total > 0 
+            ? `⭐ **Taux de Réussite Global :** \`${globalStats.rate}% de réussite\` *(${globalStats.total} avis au total)*`
+            : `⭐ **Taux de Réussite Global :** ⏳ *Attente des premiers avis...*`;
     }
 
     const newBannerUrl = 'https://i.goopics.net/mkvcwm.gif';
@@ -345,19 +381,23 @@ async function buildPanelEmbed(guild, lang = 'fr') {
 
     const title = '✨ NextGen Generator';
     const desc = lang === 'en' ? [
-        'Welcome to **NextGen Generator**! Click on a service button below to get your account sent directly to your Direct Messages.',
+        'Welcome to **NextGen Generator**! Click on a service button below to get your account sent directly to your Direct Messages (DM).',
         '',
-        '### 📊 **Service Success Rates (Turso DB):**',
+        globalHeader,
+        '',
+        '### 📊 **Service Success Rates:**',
         ...statsLines,
         '',
-        '*Please provide your feedback in DMs after generating (Working / Not Working) to update statistics live!*'
+        '*Please rate your account in DMs after generating (Working 🟢 / Not Working 🔴) to update statistics live!*'
     ].join('\n') : [
-        'Bienvenue sur le générateur **NextGen** ! Cliquez sur le bouton d\'un service ci-dessous pour obtenir vos identifiants envoyés directement en Message Privé.',
+        'Bienvenue sur le générateur **NextGen** ! Cliquez sur le bouton d\'un service ci-dessous pour obtenir vos identifiants envoyés directement en Message Privé (DM).',
         '',
-        '### 📊 **Taux de Réussite des Services (Turso DB) :**',
+        globalHeader,
+        '',
+        '### 📊 **Taux de Réussite des Services :**',
         ...statsLines,
         '',
-        '*N\'oubliez pas de donner votre avis en DM après chaque génération (Fonctionne / Fonctionne pas) !*'
+        '*N\'oubliez pas de donner votre avis en DM après chaque génération (Fonctionne 🟢 / Fonctionne pas 🔴) !*'
     ].join('\n');
 
     const embed = new EmbedBuilder()
@@ -371,28 +411,36 @@ async function buildPanelEmbed(guild, lang = 'fr') {
     return { embed, bannerAttachment };
 }
 
-// --- RÔLES DE LANGUE ---
-async function getOrCreateLanguageRoles(guild) {
+// --- GESTION ET CRÉATION DES RÔLES POUR LA SECURIATION ---
+async function getOrCreateSetupRoles(guild) {
+    let notRegRole = guild.roles.cache.find(r => r.name === 'Not Registered');
+    if (!notRegRole) {
+        notRegRole = await guild.roles.create({ name: 'Not Registered', color: '#7289DA', reason: 'Vérification Système' }).catch(() => null);
+    }
+    let countryChoiceRole = guild.roles.cache.find(r => r.name === 'Country Choice');
+    if (!countryChoiceRole) {
+        countryChoiceRole = await guild.roles.create({ name: 'Country Choice', color: '#F1C40F', reason: 'Choix de Pays Système' }).catch(() => null);
+    }
     let frRole = guild.roles.cache.find(r => r.name === '🇫🇷 Français');
     if (!frRole) {
-        frRole = await guild.roles.create({ name: '🇫🇷 Français', color: '#3498DB', reason: 'Configuration Bilingue' }).catch(() => null);
+        frRole = await guild.roles.create({ name: '🇫🇷 Français', color: '#3498DB', reason: 'Langue Système' }).catch(() => null);
     }
     let enRole = guild.roles.cache.find(r => r.name === '🇬🇧 English');
     if (!enRole) {
-        enRole = await guild.roles.create({ name: '🇬🇧 English', color: '#E74C3C', reason: 'Configuration Bilingue' }).catch(() => null);
+        enRole = await guild.roles.create({ name: '🇬🇧 English', color: '#E74C3C', reason: 'Langue Système' }).catch(() => null);
     }
-    return { frRole, enRole };
+    return { notRegRole, countryChoiceRole, frRole, enRole };
 }
 
 function sendLanguageSelectionPrompt(channel) {
     const langEmbed = new EmbedBuilder()
-        .setTitle('🌐 Choose your Language / Choisissez votre Langue')
+        .setTitle('🌍 Country & Language Selection / Choix du Pays & Langue')
         .setDescription([
-            'Veuillez sélectionner votre langue ci-dessous pour débloquer les salons correspondants :',
-            'Please select your language below to unlock your language channels:',
+            'Veuillez sélectionner votre langue / pays ci-dessous pour débloquer l\'accès à vos salons :',
+            'Please select your country / language below to unlock your community channels:',
             '',
-            '🇫🇷 **Français** — Accéder à la communauté francophone & salons FR',
-            '🇬🇧 **English** — Access the English community & EN channels'
+            '🇫🇷 **Français** — Accéder à la communauté francophone',
+            '🇬🇧 **English** — Access the English community'
         ].join('\n'))
         .setColor('#5865F2')
         .setTimestamp();
@@ -621,11 +669,19 @@ const server = http.createServer(async (req, res) => {
                         try {
                             const member = await guild.members.fetch(userData.id).catch(() => null);
                             if (member) {
+                                const { notRegRole, countryChoiceRole } = await getOrCreateSetupRoles(guild);
+
+                                // GESTION DU FLUX DE SECURIATION EXIGÉE :
+                                // 1. Attribution du Rôle Verified & Country Choice
                                 await member.roles.add(VERIFIED_ROLE_ID).catch(() => {});
+                                if (countryChoiceRole) await member.roles.add(countryChoiceRole.id).catch(() => {});
+
+                                // 2. Retrait du Rôle Not Registered -> Masque définitivement le salon verify !
+                                if (notRegRole) await member.roles.remove(notRegRole.id).catch(() => {});
 
                                 const logEmbed = new EmbedBuilder()
-                                    .setTitle('🛡️ Membre Vérifié')
-                                    .setDescription(`👤 **Membre :** <@${userData.id}> (\`${userData.username}\`)\n✅ **Rôle attribué :** <@&${VERIFIED_ROLE_ID}>`)
+                                    .setTitle('🛡️ Membre Vérifié (OAuth2)')
+                                    .setDescription(`👤 **Membre :** <@${userData.id}> (\`${userData.username}\`)\n✅ **Vérification réussie !** Rôle Not Registered retiré, Country Choice attribué (Salon 🌍・country débloqué).`)
                                     .setColor('#57F287')
                                     .setTimestamp();
                                 await sendLog(guild, logEmbed);
@@ -758,7 +814,7 @@ const server = http.createServer(async (req, res) => {
                                     </svg>
                                 </div>
                                 <h1>Vérification Réussie !</h1>
-                                <p>Votre compte Discord a été vérifié avec succès par <strong>NextGen Security Protocol</strong>.<br><br>Tous vos accès aux salons du serveur sont désormais débloqués !</p>
+                                <p>Votre compte Discord a été vérifié avec succès par <strong>NextGen Security Protocol</strong>.<br><br>Rendez-vous dans le salon 🌍・country sur Discord pour choisir votre pays !</p>
                                 <a href="discord://" class="btn">Retourner sur Discord</a>
                                 <div class="footer-text">Vous pouvez désormais fermer cet onglet.</div>
                             </div>
@@ -827,7 +883,7 @@ async function registerCommands() {
             .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
         new SlashCommandBuilder()
             .setName('en-fr')
-            .setDescription('Purge le serveur et déploie l\'arborescence bilingue 1:1 sans suffixe')
+            .setDescription('Purge le serveur et déploie le système avec Not Registered & Country Choice')
             .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
         new SlashCommandBuilder()
             .setName('broadcast')
@@ -1025,9 +1081,16 @@ client.once('clientReady', async () => {
     client.guilds.cache.forEach(guild => cacheGuildInvites(guild));
 });
 
-// Événement d'arrivée de membres
+// Événement d'arrivée de membres: ATTRIBUTION AUTOMATIQUE DU RÔLE "Not Registered"
 client.on('guildMemberAdd', async (member) => {
     const { guild } = member;
+
+    try {
+        const { notRegRole } = await getOrCreateSetupRoles(guild);
+        if (notRegRole) {
+            await member.roles.add(notRegRole.id).catch(() => {});
+        }
+    } catch (e) {}
 
     const accountAgeMs = Date.now() - member.user.createdTimestamp;
     const accountAgeDays = Math.floor(accountAgeMs / (1000 * 60 * 60 * 24));
@@ -1085,8 +1148,8 @@ client.on('guildMemberAdd', async (member) => {
     }
 
     const logEmbed = new EmbedBuilder()
-        .setTitle('📥 Arrivée Membre')
-        .setDescription(`👤 **Membre :** <@${member.id}>\n👤 **Invité par :** ${inviterText}\n${inviterStatsText}`)
+        .setTitle('📥 Arrivée Membre (Non Enregistré)')
+        .setDescription(`👤 **Membre :** <@${member.id}>\n👤 **Invité par :** ${inviterText}\n${inviterStatsText}\n🏷️ Rôle attribué : \`Not Registered\``)
         .setColor('#5865F2')
         .setTimestamp();
     await sendLog(guild, logEmbed);
@@ -1225,7 +1288,7 @@ client.on('interactionCreate', async (interaction) => {
 
                 const guild = interaction.guild;
                 const everyoneRole = guild.roles.everyone;
-                const { frRole, enRole } = await getOrCreateLanguageRoles(guild);
+                const { notRegRole, countryChoiceRole, frRole, enRole } = await getOrCreateSetupRoles(guild);
 
                 // 1. SUPPRESSION DE TOUS LES SALONS ET CATÉGORIES EXISTANTS
                 const existingChannels = await guild.channels.fetch();
@@ -1235,15 +1298,23 @@ client.on('interactionCreate', async (interaction) => {
                     }
                 }
 
-                // 2. CRÉATION DU SALON DE VÉRIFICATION UNIFIÉ
+                // 2. CRÉATION DU SALON #🛡️・verify (Visible UNIQUEMENT pour Not Registered)
                 const verifyChannel = await guild.channels.create({
                     name: '🛡️・verify',
                     type: ChannelType.GuildText,
                     permissionOverwrites: [
                         {
                             id: everyoneRole.id,
+                            deny: [PermissionFlagsBits.ViewChannel]
+                        },
+                        {
+                            id: notRegRole ? notRegRole.id : everyoneRole.id,
                             allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
                             deny: [PermissionFlagsBits.SendMessages]
+                        },
+                        {
+                            id: VERIFIED_ROLE_ID,
+                            deny: [PermissionFlagsBits.ViewChannel]
                         }
                     ]
                 });
@@ -1258,7 +1329,7 @@ client.on('interactionCreate', async (interaction) => {
                         '',
                         '1. Cliquez sur le bouton **Se Vérifier / Verify** ci-dessous.',
                         '2. Acceptez l\'autorisation.',
-                        '3. Vos salons se débloqueront automatiquement !'
+                        '3. Le salon `🌍・country` s\'affichera pour choisir votre pays !'
                     ].join('\n'))
                     .setColor('#57F287')
                     .setTimestamp();
@@ -1271,12 +1342,38 @@ client.on('interactionCreate', async (interaction) => {
                 );
 
                 await verifyChannel.send({ embeds: [verifyEmbed], components: [verifyRow] });
-                const langPrompt = sendLanguageSelectionPrompt(verifyChannel);
-                await verifyChannel.send(langPrompt);
+
+                // 3. CRÉATION DU SALON #🌍・country (Visible UNIQUEMENT pour Country Choice)
+                const countryChannel = await guild.channels.create({
+                    name: '🌍・country',
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        {
+                            id: everyoneRole.id,
+                            deny: [PermissionFlagsBits.ViewChannel]
+                        },
+                        {
+                            id: countryChoiceRole ? countryChoiceRole.id : everyoneRole.id,
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                            deny: [PermissionFlagsBits.SendMessages]
+                        },
+                        {
+                            id: frRole ? frRole.id : everyoneRole.id,
+                            deny: [PermissionFlagsBits.ViewChannel]
+                        },
+                        {
+                            id: enRole ? enRole.id : everyoneRole.id,
+                            deny: [PermissionFlagsBits.ViewChannel]
+                        }
+                    ]
+                });
+
+                const langPrompt = sendLanguageSelectionPrompt(countryChannel);
+                await countryChannel.send(langPrompt);
 
                 const createdSummary = [];
 
-                // 3. SECTEUR FRANÇAIS
+                // 4. SECTEUR FRANÇAIS (Visible UNIQUEMENT pour rôle 🇫🇷 Français)
                 const frStructure = [
                     {
                         category: 'main',
@@ -1342,7 +1439,7 @@ client.on('interactionCreate', async (interaction) => {
                     createdSummary.push(`📁 **Catégorie FR : ${catData.category}**\n${createdChannels.join('\n')}`);
                 }
 
-                // 4. SECTEUR ANGLAIS (Noms en Anglais pur)
+                // 5. SECTEUR ANGLAIS (Visible UNIQUEMENT pour rôle 🇬🇧 English)
                 const enStructure = [
                     {
                         category: 'Main',
@@ -1426,20 +1523,25 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 const setupEmbed = new EmbedBuilder()
-                    .setTitle('🧹 Anciens Salons Supprimés & Serveur Bilingue 1:1 Déployé !')
+                    .setTitle('🧹 Anciens Salons Supprimés & Systèmes de Rôles Déployés !')
                     .setDescription([
-                        'Le serveur a été entièrement réinitialisé et recréé de zéro :',
+                        'Le serveur a été entièrement réinitialisé avec le flux de sécurité complet :',
                         '',
-                        `🛡️ **Vérification :** <#${verifyChannel.id}>`,
-                        '🇫🇷 **Secteur Français :** Titres originaux en Français (Rôle `🇫🇷 Français`)',
-                        '🇬🇧 **English Sector:** Clean English names (Role `🇬🇧 English`)',
+                        `🛡️ **Salon Verify :** <#${verifyChannel.id}> (Seul salon visible avec rôle \`Not Registered\`)`,
+                        `🌍 **Salon Country :** <#${countryChannel.id}> (Visible une fois vérifié avec rôle \`Country Choice\`)`,
+                        '🇫🇷 **Secteur Français :** Débloqué une fois le pays choisi (Rôle `🇫🇷 Français`)',
+                        '🇬🇧 **English Sector:** Unlocked once country chosen (Role `🇬🇧 English`)',
                         '',
                         createdSummary.join('\n\n')
                     ].join('\n'))
                     .setColor('#57F287')
                     .setTimestamp();
 
-                await interaction.editReply({ embeds: [setupEmbed] });
+                try {
+                    await interaction.editReply({ embeds: [setupEmbed] });
+                } catch (err) {
+                    if (err.code !== 10008) console.error('Interaction editReply handled:', err);
+                }
             }
 
             // --- COMMANDE /broadcast ---
@@ -1487,7 +1589,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // --- COMMANDE /proof-rules (AVEC OPTION DE LANGUE ET SALON CIBLÉ) ---
+            // --- COMMANDE /proof-rules ---
             else if (commandName === 'proof-rules') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -1509,7 +1611,7 @@ client.on('interactionCreate', async (interaction) => {
                 }
             }
 
-            // --- COMMANDE /faq-panel (AVEC OPTION DE LANGUE ET SALON CIBLÉ) ---
+            // --- COMMANDE /faq-panel ---
             else if (commandName === 'faq-panel') {
                 await interaction.deferReply();
 
@@ -1570,7 +1672,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // --- COMMANDE /ticket-panel (AVEC OPTION DE LANGUE ET SALON CIBLÉ) ---
+            // --- COMMANDE /ticket-panel ---
             else if (commandName === 'ticket-panel') {
                 await interaction.deferReply();
 
@@ -1612,7 +1714,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // --- COMMANDE /verify (AVEC OPTION DE LANGUE ET SALON CIBLÉ) ---
+            // --- COMMANDE /verify ---
             else if (commandName === 'verify') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -1628,14 +1730,14 @@ client.on('interactionCreate', async (interaction) => {
                     'Welcome to the server! Please verify below to access channels and generators.',
                     '',
                     '1. Click the **Verify** button below.',
-                    '2. Accept the authorization.',
-                    '3. Your server access will unlock automatically!'
+                    '2. Accept authorization.',
+                    '3. Channel `🌍・country` will appear to select your language!'
                 ].join('\n') : [
                     'Bienvenue sur le serveur ! Pour accéder aux salons et aux générateurs, merci de vous vérifier ci-dessous.',
                     '',
                     '1. Cliquez sur le bouton **Se Vérifier** ci-dessous.',
                     '2. Acceptez l\'autorisation.',
-                    '3. Vos salons se débloqueront automatiquement !'
+                    '3. Le salon `🌍・country` s\'affichera pour choisir votre pays !'
                 ].join('\n');
 
                 const verifyEmbed = new EmbedBuilder()
@@ -1656,15 +1758,12 @@ client.on('interactionCreate', async (interaction) => {
                     components: [row]
                 });
 
-                const langPrompt = sendLanguageSelectionPrompt(targetChannel);
-                await targetChannel.send(langPrompt);
-
                 await interaction.editReply({
                     content: `✅ Panneau de vérification (${lang.toUpperCase()}) déployé dans <#${targetChannel.id}>.`
                 });
             }
 
-            // --- COMMANDE /panel (AVEC OPTION DE LANGUE ET SALON CIBLÉ) ---
+            // --- COMMANDE /panel ---
             else if (commandName === 'panel') {
                 await interaction.deferReply();
 
@@ -2214,10 +2313,10 @@ client.on('interactionCreate', async (interaction) => {
         else if (interaction.isButton()) {
             const { customId, guild, user } = interaction;
 
-            // CHOIX DE LANGUE (Français / English)
+            // CHOIX DE PAYS / LANGUE (Français / English)
             if (customId === 'lang_fr' || customId === 'lang_en') {
                 const isFr = customId === 'lang_fr';
-                const { frRole, enRole } = await getOrCreateLanguageRoles(guild);
+                const { countryChoiceRole, frRole, enRole } = await getOrCreateSetupRoles(guild);
                 const member = await guild.members.fetch(user.id).catch(() => null);
 
                 if (member) {
@@ -2228,12 +2327,16 @@ client.on('interactionCreate', async (interaction) => {
                         if (enRole) await member.roles.add(enRole.id).catch(() => {});
                         if (frRole) await member.roles.remove(frRole.id).catch(() => {});
                     }
+                    // Retrait du rôle Country Choice -> Le salon 🌍・country disparaît automatiquement !
+                    if (countryChoiceRole) {
+                        await member.roles.remove(countryChoiceRole.id).catch(() => {});
+                    }
                 }
 
                 return interaction.reply({
                     content: isFr 
-                        ? '🇫🇷 **Vous avez sélectionné le français !** Vos accès aux salons FR sont débloqués.' 
-                        : '🇬🇧 **You selected English!** Your access to EN channels has been unlocked.',
+                        ? '🇫🇷 **Vous avez sélectionné la France !** Vos accès aux salons FR sont débloqués et le salon country est désormais masqué.' 
+                        : '🇬🇧 **You selected English!** Your access to EN channels has been unlocked and the country channel is now hidden.',
                     flags: MessageFlags.Ephemeral
                 });
             }
