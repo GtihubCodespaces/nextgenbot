@@ -1076,86 +1076,142 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // --- COMMANDE /en-fr (SETUP DU SERVEUR EN STRUCTURE BILINGUE) ---
+            // --- COMMANDE /en-fr (SETUP BILINGUE ULTRA STRICT) ---
             else if (commandName === 'en-fr') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const guild = interaction.guild;
+                const everyoneRole = guild.roles.everyone;
                 const { frRole, enRole } = await getOrCreateLanguageRoles(guild);
-
-                const bilingualStructure = [
-                    {
-                        category: '🌐 COMMON / GENERAL',
-                        channels: [
-                            { name: '🛡️・verify', roles: [guild.roles.everyone.id] },
-                            { name: '✅・invites', roles: [guild.roles.everyone.id] },
-                            { name: '🌠・boost', roles: [guild.roles.everyone.id] },
-                            { name: '✅・proof', roles: [guild.roles.everyone.id] },
-                            { name: '📩・ticket', roles: [guild.roles.everyone.id] }
-                        ]
-                    },
-                    {
-                        category: '🇫🇷 FRANÇAIS',
-                        channels: [
-                            { name: '📢・annonces', roleTarget: frRole },
-                            { name: '🎁・giveaways-fr', roleTarget: frRole },
-                            { name: '💬・general-fr', roleTarget: frRole },
-                            { name: '⭐・gen-fr', roleTarget: frRole },
-                            { name: '📦・restock-fr', roleTarget: frRole }
-                        ]
-                    },
-                    {
-                        category: '🇬🇧 ENGLISH',
-                        channels: [
-                            { name: '📢・announcements', roleTarget: enRole },
-                            { name: '🎁・giveaways-en', roleTarget: enRole },
-                            { name: '💬・general-en', roleTarget: enRole },
-                            { name: '⭐・gen-en', roleTarget: enRole },
-                            { name: '📦・restock-en', roleTarget: enRole }
-                        ]
-                    }
-                ];
 
                 const createdSummary = [];
 
-                for (const catData of bilingualStructure) {
-                    const categoryChannel = await guild.channels.create({
-                        name: catData.category,
-                        type: ChannelType.GuildCategory
+                // 1. Catégorie & Salons Globaux (Vérifiés uniquement)
+                const commonCat = await guild.channels.create({
+                    name: '🌐 COMMON / GENERAL',
+                    type: ChannelType.GuildCategory,
+                    permissionOverwrites: [
+                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: VERIFIED_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel] }
+                    ]
+                });
+
+                const commonChannels = [
+                    '✅・invites',
+                    '🌠・boost',
+                    '✅・proof',
+                    '📩・ticket'
+                ];
+
+                const createdCommon = [];
+                for (const chName of commonChannels) {
+                    const overwrites = getPermissionOverwrites(guild, chName);
+                    const textCh = await guild.channels.create({
+                        name: chName,
+                        type: ChannelType.GuildText,
+                        parent: commonCat.id,
+                        permissionOverwrites: overwrites
                     });
-
-                    const createdChannels = [];
-                    for (const chData of catData.channels) {
-                        const overwrites = getPermissionOverwrites(guild, chData.name);
-
-                        if (chData.roleTarget) {
-                            overwrites.push({
-                                id: chData.roleTarget.id,
-                                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]
-                            });
-                        }
-
-                        const textChannel = await guild.channels.create({
-                            name: chData.name,
-                            type: ChannelType.GuildText,
-                            parent: categoryChannel.id,
-                            permissionOverwrites: overwrites
-                        });
-
-                        if (chData.name === '✅・proof') {
-                            await sendProofRuleBanner(textChannel);
-                        }
-
-                        createdChannels.push(`- <#${textChannel.id}>`);
+                    if (chName === '✅・proof') {
+                        await sendProofRuleBanner(textCh);
                     }
-
-                    createdSummary.push(`📁 **Catégorie : ${catData.category}**\n${createdChannels.join('\n')}`);
+                    createdCommon.push(`- <#${textCh.id}>`);
                 }
+                createdSummary.push(`📁 **Catégorie : 🌐 COMMON / GENERAL**\n${createdCommon.join('\n')}`);
+
+                // 2. Catégorie 🇫🇷 FRANÇAIS (Rôle FR uniquement)
+                const frCat = await guild.channels.create({
+                    name: '🇫🇷 FRANÇAIS',
+                    type: ChannelType.GuildCategory,
+                    permissionOverwrites: [
+                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: VERIFIED_ROLE_ID, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: frRole ? frRole.id : everyoneRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }
+                    ]
+                });
+
+                const frChannelsData = [
+                    { name: '📢・annonces', readOnly: true },
+                    { name: '🎁・giveaways-fr', readOnly: true },
+                    { name: '💬・general-fr', readOnly: false },
+                    { name: '⭐・gen-fr', readOnly: false },
+                    { name: '📦・restock-fr', readOnly: true }
+                ];
+
+                const createdFr = [];
+                for (const chData of frChannelsData) {
+                    const overwrites = [
+                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        {
+                            id: frRole ? frRole.id : everyoneRole.id,
+                            allow: chData.readOnly 
+                                ? [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] 
+                                : [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.UseApplicationCommands],
+                            deny: chData.readOnly ? [PermissionFlagsBits.SendMessages] : []
+                        }
+                    ];
+                    const textCh = await guild.channels.create({
+                        name: chData.name,
+                        type: ChannelType.GuildText,
+                        parent: frCat.id,
+                        permissionOverwrites: overwrites
+                    });
+                    createdFr.push(`- <#${textCh.id}> ${chData.readOnly ? '🔒 *(Lecture seule)*' : '💬 *(Public)*'}`);
+                }
+                createdSummary.push(`📁 **Catégorie : 🇫🇷 FRANÇAIS**\n${createdFr.join('\n')}`);
+
+                // 3. Catégorie 🇬🇧 ENGLISH (Rôle EN uniquement)
+                const enCat = await guild.channels.create({
+                    name: '🇬🇧 ENGLISH',
+                    type: ChannelType.GuildCategory,
+                    permissionOverwrites: [
+                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: VERIFIED_ROLE_ID, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: enRole ? enRole.id : everyoneRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }
+                    ]
+                });
+
+                const enChannelsData = [
+                    { name: '📢・announcements', readOnly: true },
+                    { name: '🎁・giveaways-en', readOnly: true },
+                    { name: '💬・general-en', readOnly: false },
+                    { name: '⭐・gen-en', readOnly: false },
+                    { name: '📦・restock-en', readOnly: true }
+                ];
+
+                const createdEn = [];
+                for (const chData of enChannelsData) {
+                    const overwrites = [
+                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        {
+                            id: enRole ? enRole.id : everyoneRole.id,
+                            allow: chData.readOnly 
+                                ? [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] 
+                                : [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.UseApplicationCommands],
+                            deny: chData.readOnly ? [PermissionFlagsBits.SendMessages] : []
+                        }
+                    ];
+                    const textCh = await guild.channels.create({
+                        name: chData.name,
+                        type: ChannelType.GuildText,
+                        parent: enCat.id,
+                        permissionOverwrites: overwrites
+                    });
+                    createdEn.push(`- <#${textCh.id}> ${chData.readOnly ? '🔒 *(Read Only)*' : '💬 *(Public)*'}`);
+                }
+                createdSummary.push(`📁 **Catégorie : 🇬🇧 ENGLISH**\n${createdEn.join('\n')}`);
 
                 const setupEmbed = new EmbedBuilder()
-                    .setTitle('🌐 Structure Bilingue Créée (FR / EN)')
-                    .setDescription(`L'arborescence bilingue et les rôles de langue ont été déployés :\n\n${createdSummary.join('\n\n')}`)
-                    .setColor('#5865F2')
+                    .setTitle('🛡️ Arborescence Bilingue & Permissions Déployées !')
+                    .setDescription([
+                        'Les permissions ont été ajustées de manière ultra stricte :',
+                        '🔒 **Non Vérifiés :** Ne voient **ABSOLUMENT RIEN** d\'autre que le salon <#verify>.',
+                        '🇫🇷 **Membres Français :** Voient la catégorie 🌐 COMMON et 🇫🇷 FRANÇAIS.',
+                        '🇬🇧 **English Members:** See 🌐 COMMON & 🇬🇧 ENGLISH categories.',
+                        '',
+                        createdSummary.join('\n\n')
+                    ].join('\n'))
+                    .setColor('#57F287')
                     .setTimestamp();
 
                 await interaction.editReply({ embeds: [setupEmbed] });
