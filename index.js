@@ -291,18 +291,42 @@ function popServiceStock(serviceId) {
     return account;
 }
 
-// --- FONCTIONS TURSO DB ---
 async function addTursoCombos(serviceId, combos) {
-    addServiceStock(serviceId, combos);
     try {
-        for (const combo of combos) {
-            await turso.execute({
+        // Récupère la liste des combos déjà existants en DB pour ce service
+        const existingRes = await turso.execute({
+            sql: 'SELECT combo FROM combos WHERE service_id = ?',
+            args: [serviceId]
+        });
+        const existingCombos = new Set(existingRes.rows.map(r => r.combo));
+
+        // Filtre pour ne garder que les vrais nouveaux (non présents)
+        const newCombos = combos.filter(c => !existingCombos.has(c));
+
+        if (newCombos.length === 0) {
+            return 0; // Aucun nouveau combo à ajouter
+        }
+
+        addServiceStock(serviceId, newCombos);
+
+        const BATCH_SIZE = 250;
+        for (let i = 0; i < newCombos.length; i += BATCH_SIZE) {
+            const chunk = newCombos.slice(i, i + BATCH_SIZE);
+            const statements = chunk.map(combo => ({
                 sql: 'INSERT INTO combos (service_id, combo) VALUES (?, ?)',
                 args: [serviceId, combo]
-            });
+            }));
+            await turso.batch(statements, 'write');
         }
+
+        return newCombos.length;
     } catch (e) {
-        console.error('Erreur Turso addCombos :', e);
+        console.error('Erreur Turso addCombos (Batch) :', e);
+        // Fallback local
+        const localCurrent = new Set(getServiceStock(serviceId));
+        const newLocal = combos.filter(c => !localCurrent.has(c));
+        if (newLocal.length > 0) addServiceStock(serviceId, newLocal);
+        return newLocal.length;
     }
 }
 
@@ -1326,6 +1350,20 @@ client.once('clientReady', async () => {
     logAssetLoading();
     await initTursoDB();
     await registerCommands();
+    
+    // Cron pour bump Discadia tous les jours à 15h45 (Heure Française Europe/Paris)
+    cron.schedule('45 15 * * *', () => {
+        client.guilds.cache.forEach(async (guild) => {
+            const staffCh = guild.channels.cache.find(c => c.name === '💬・staff-chat' || c.name.includes('staff'));
+            if (staffCh && staffCh.isTextBased()) {
+                await staffCh.send('⏰ **Rappel Bump :** Il est 15h45, c\'est l\'heure de bumper le serveur sur Discadia ! `/bump`');
+            }
+        });
+    }, {
+        scheduled: true,
+        timezone: 'Europe/Paris'
+    });
+
     for (const [id, guild] of client.guilds.cache) {
         ensureGuildDefaults(guild.id);
         await cacheGuildInvites(guild);
@@ -2665,8 +2703,14 @@ ${textContent}`;
                         });
                     }
 
-                    await addTursoCombos(serviceId, combos);
+                    const addedCount = await addTursoCombos(serviceId, combos);
                     const totalStockCount = await getTursoStockCount(serviceId);
+
+                    if (addedCount === 0) {
+                        return interaction.editReply({
+                            content: `⚠️ **Aucun nouveau compte importé** : Les **${comboCount}** comptes de votre fichier sont déjà tous présents dans le stock du service **${serviceName}** !`
+                        });
+                    }
 
                     const guild = interaction.guild;
                     let frRestockCh = guild.channels.cache.find(c => c.name === '📦・restock' || c.name.includes('restock-fr'));
@@ -2680,7 +2724,7 @@ ${textContent}`;
                             `Un nouveau restock vient d'être effectué !`,
                             '',
                             `🛒 **Service :** **${serviceName}**`,
-                            `📊 **Nouveaux comptes importés :** **${comboCount}**`,
+                            `📊 **Nouveaux comptes importés :** **${addedCount}** *(sur ${comboCount} analysés)*`,
                             `📈 **Stock Total Actuel :** **${totalStockCount}** comptes`,
                             `👤 **Restocké par :** <@${interaction.user.id}>`,
                             '',
@@ -2698,7 +2742,7 @@ ${textContent}`;
                                 `A new restock has just been processed!`,
                                 '',
                                 `🛒 **Service:** **${serviceName}**`,
-                                `📊 **New accounts imported:** **${comboCount}**`,
+                                `📊 **New accounts imported:** **${addedCount}** *(out of ${comboCount} analyzed)*`,
                                 `📈 **Total Current Stock:** **${totalStockCount}** accounts`,
                                 `👤 **Restocked by:** <@${interaction.user.id}>`,
                                 '',
@@ -2711,7 +2755,7 @@ ${textContent}`;
                     }
 
                     await interaction.editReply({
-                        content: `✅ Restock de **${comboCount}** comptes pour **${serviceName}** publié dans les salons ! Stock total : **${totalStockCount}**.`
+                        content: `✅ Restock de **${addedCount}** nouveaux comptes uniques pour **${serviceName}** publié dans les salons ! Stock total : **${totalStockCount}**.`
                     });
 
                     const logEmbed = new EmbedBuilder()
