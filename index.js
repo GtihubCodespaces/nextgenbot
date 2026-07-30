@@ -365,32 +365,153 @@ async function popTursoCombo(serviceId) {
     }
 }
 
-async function addTursoFeedback(serviceId, isWorking, userId) {
-    try {
-        await turso.execute({
-            sql: 'INSERT INTO feedback (service_id, is_working, user_id) VALUES (?, ?, ?)',
-            args: [serviceId, isWorking ? 1 : 0, userId]
-        });
-    } catch (e) {
-        console.error('Erreur Turso feedback :', e);
+async function queryAI(prompt, maxTokens = 1000) {
+    const cerebrasApiKey = process.env.CEREBRAS_API_KEY || 'csk-8er2fch84fkk8xm9rhnw4xpfrxcd4m6rmdvfhf9jnk63x6td';
+    const groqApiKey = process.env.GROQ_API_KEY;
+
+    // 1. Priorité 1 : Cerebras AI (2,000 tokens/sec - Ultra Rapide & Illimité)
+    if (cerebrasApiKey) {
+        try {
+            const res = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${cerebrasApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: 'llama3.1-8b',
+                    messages: [{ role: 'user', content: prompt }],
+                    temperature: 0.1,
+                    max_tokens: maxTokens
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                const text = data.choices[0]?.message?.content?.trim();
+                if (text) return text;
+            } else {
+                console.error('Cerebras HTTP Error:', res.status, await res.text());
+            }
+        } catch (e) {
+            console.error('Erreur Cerebras AI :', e);
+        }
     }
+
+    // 2. Priorité 2 (Fallback) : Groq AI (Multi-Modèles)
+    if (groqApiKey) {
+        const groqModels = ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'mixtral-8x7b-32768'];
+        for (const model of groqModels) {
+            try {
+                const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${groqApiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [{ role: 'user', content: prompt }],
+                        temperature: 0.1,
+                        max_tokens: maxTokens
+                    })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    const text = data.choices[0]?.message?.content?.trim();
+                    if (text) return text;
+                }
+            } catch (e) {
+                console.error(`Erreur Groq AI (${model}) :`, e);
+            }
+        }
+    }
+
+    return null;
 }
 
-async function getTursoSuccessRate(serviceId) {
-    try {
-        const res = await turso.execute({
-            sql: 'SELECT SUM(is_working) as success, COUNT(*) as total FROM feedback WHERE service_id = ?',
-            args: [serviceId]
-        });
-        const row = res.rows[0];
-        const total = Number(row?.total || 0);
-        if (total === 0) return { rate: 100, total: 0 };
-        const success = Number(row?.success || 0);
-        const rate = Math.round((success / total) * 100);
-        return { rate, total };
-    } catch {
-        return { rate: 100, total: 0 };
+async function translateTextWithGroq(text, targetLang = 'en') {
+    if (!text || text.trim().length === 0) return text;
+
+    const prompt = targetLang === 'en'
+        ? `Translate the following text into English. Keep emojis and formatting intact. Do not add any greeting or explanation. Output ONLY the translated text:\n\n${text}`
+        : `Traduire le texte suivant en Français. Garder les emojis et la mise en forme. Ne pas ajouter d'explications ni de salutations. Afficher UNIQUEMENT le texte traduit :\n\n${text}`;
+
+    const result = await queryAI(prompt, 1000);
+    return result || text;
+}
+
+async function sendBilingualProofEmbed(guild, user, serviceId, starsCount, reviewText, imageUrl = null) {
+    if (!guild) return false;
+
+    const sObj = services.find(s => s.id === serviceId);
+    const serviceName = sObj ? sObj.label : serviceId;
+    const starsStr = '⭐'.repeat(starsCount) + '☆'.repeat(5 - starsCount);
+
+    let reviewFr = reviewText;
+    let reviewEn = reviewText;
+
+    if (process.env.GROQ_API_KEY) {
+        reviewEn = await translateTextWithGroq(reviewText, 'en');
+        reviewFr = await translateTextWithGroq(reviewText, 'fr');
     }
+
+    const frCh = guild.channels.cache.find(c => c.name === '✅・proof' || c.id === '1532367061974519998' || (c.name.includes('proof') && !c.name.includes('en') && !c.name.includes('proofs')));
+    const enCh = guild.channels.cache.find(c => c.name === '✅・proofs' || c.id === '1532367078030446602' || c.name.includes('proofs') || (c.name.includes('proof') && c.name.includes('en')));
+
+    let sent = false;
+
+    if (frCh && frCh.isTextBased()) {
+        const embedFr = new EmbedBuilder()
+            .setTitle(`⭐ Preuve & Avis — ${serviceName}`)
+            .setDescription([
+                `👤 **Membre :** <@${user.id}> (\`${user.tag}\`)`,
+                `🛒 **Service :** **${serviceName}**`,
+                `⭐ **Note :** ${starsStr} \`(${starsCount}/5)\``,
+                '',
+                `💬 **Avis :**`,
+                `>>> *"${reviewFr}"*`
+            ].join('\n'))
+            .setColor('#FFD700')
+            .setFooter({ text: 'NextGen Proof System • Avis Vérifié', iconURL: user.displayAvatarURL() })
+            .setTimestamp();
+
+        if (imageUrl) embedFr.setImage(imageUrl);
+
+        await frCh.send({ embeds: [embedFr] });
+        sent = true;
+    }
+
+    if (enCh && enCh.isTextBased()) {
+        const embedEn = new EmbedBuilder()
+            .setTitle(`⭐ Review & Proof — ${serviceName}`)
+            .setDescription([
+                `👤 **Member:** <@${user.id}> (\`${user.tag}\`)`,
+                `🛒 **Service:** **${serviceName}**`,
+                `⭐ **Rating:** ${starsStr} \`(${starsCount}/5)\``,
+                '',
+                `💬 **Review:**`,
+                `>>> *"${reviewEn}"*`
+            ].join('\n'))
+            .setColor('#FFD700')
+            .setFooter({ text: 'NextGen Proof System • Verified Review', iconURL: user.displayAvatarURL() })
+            .setTimestamp();
+
+        if (imageUrl) embedEn.setImage(imageUrl);
+
+        await enCh.send({ embeds: [embedEn] });
+        sent = true;
+    }
+
+    const logEmbed = new EmbedBuilder()
+        .setTitle('⭐ Nouvel Avis & Preuve Soumis')
+        .setDescription(`👤 **Auteur :** <@${user.id}>\n🛒 **Service :** \`${serviceName}\`\n⭐ **Note :** ${starsCount}/5\n💬 **Avis :** "${reviewText}"`)
+        .setColor('#FFD700')
+        .setTimestamp();
+    await sendLog(guild, logEmbed);
+
+    return sent;
 }
 
 // Envoi des logs
@@ -493,11 +614,26 @@ async function getOrFetchEmoji(guild, service) {
     return service.defaultEmoji;
 }
 
+function getServiceTier(guildId, serviceId) {
+    if (!guildId) {
+        const s = services.find(srv => srv.id === serviceId);
+        return s ? s.tier : 'free';
+    }
+    const override = getGuildConfig(guildId, `service_tier_${serviceId}`);
+    if (override) return override;
+    const s = services.find(srv => srv.id === serviceId);
+    return s ? s.tier : 'free';
+}
+
+function setServiceTier(guildId, serviceId, tier) {
+    setGuildConfig(guildId, `service_tier_${serviceId}`, tier);
+}
+
 async function buildServiceRows(guild, tier = 'free') {
     const rows = [];
     let currentRow = new ActionRowBuilder();
 
-    const filteredServices = services.filter(s => s.tier === tier);
+    const filteredServices = services.filter(s => getServiceTier(guild ? guild.id : null, s.id) === tier);
 
     for (let i = 0; i < filteredServices.length; i++) {
         const service = filteredServices[i];
@@ -544,41 +680,6 @@ async function getTursoGlobalSuccessRate() {
 
 // Fonction de création des Embeds du Panel (FR ou EN)
 async function buildPanelEmbed(guild, lang = 'fr', tier = 'free') {
-    const statsLines = [];
-    const filteredServices = services.filter(s => s.tier === tier);
-
-    for (const service of filteredServices) {
-        const emoji = await getOrFetchEmoji(guild, service);
-        const emojiStr = (typeof emoji === 'string') ? emoji : `<:${emoji.name}:${emoji.id}>`;
-        const { rate, total } = await getTursoSuccessRate(service.id);
-        
-        if (total === 0) {
-            if (lang === 'en') {
-                statsLines.push(`${emojiStr} **${service.label}** — ⏳ *Waiting for results...* \`(0 reviews)\``);
-            } else {
-                statsLines.push(`${emojiStr} **${service.label}** — ⏳ *Attente des résultats...* \`(0 avis)\``);
-            }
-        } else {
-            if (lang === 'en') {
-                statsLines.push(`${emojiStr} **${service.label}** — \`${rate}% success\` *(${total} reviews)*`);
-            } else {
-                statsLines.push(`${emojiStr} **${service.label}** — \`${rate}% de réussite\` *(${total} avis)*`);
-            }
-        }
-    }
-
-    const globalStats = await getTursoGlobalSuccessRate();
-    let globalHeader = '';
-    if (lang === 'en') {
-        globalHeader = globalStats.total > 0 
-            ? `⭐ **Overall Success Rate:** \`${globalStats.rate}% success\` *(${globalStats.total} total reviews)*`
-            : `⭐ **Overall Success Rate:** ⏳ *Waiting for first reviews...*`;
-    } else {
-        globalHeader = globalStats.total > 0 
-            ? `⭐ **Taux de Réussite Global :** \`${globalStats.rate}% de réussite\` *(${globalStats.total} avis au total)*`
-            : `⭐ **Taux de Réussite Global :** ⏳ *Attente des premiers avis...*`;
-    }
-
     const customGifUrl = getGuildConfig(guild.id, 'panelGifUrl');
     const newBannerUrl = customGifUrl || 'https://i.goopics.net/mkvcwm.gif';
     const localGifPath = 'D:/Download Twp/ff7adda344439436df0991801fb91272.gif';
@@ -597,21 +698,21 @@ async function buildPanelEmbed(guild, lang = 'fr', tier = 'free') {
     const desc = lang === 'en' ? [
         isPremium ? 'Welcome to the **Premium Generator**! 🚀 Exclusive VIP access to our high-quality accounts.' : 'Welcome to **NextGen Generator**! Click on a service button below to get your account sent directly to your Direct Messages (DM).',
         '',
-        globalHeader,
+        '📖 **How to generate:**',
+        '1. Ensure you have `discadia.gg/nextg3n` in your Discord Custom Status.',
+        '2. Click on your desired service button below.',
+        '3. Check your DMs to receive your credentials!',
         '',
-        '### 📊 **Service Success Rates:**',
-        ...statsLines,
-        '',
-        '*Please rate your account in DMs after generating (Working 🟢 / Not Working 🔴) to update statistics live!*'
+        '⭐ *Don\'t forget to post your proof and review using `/proof` or the button received in DMs!*'
     ].join('\n') : [
         isPremium ? 'Bienvenue sur le **Générateur Premium** ! 🚀 Accès exclusif VIP à nos comptes de haute qualité.' : 'Bienvenue sur le générateur **NextGen** ! Cliquez sur le bouton d\'un service ci-dessous pour obtenir vos identifiants envoyés directement en Message Privé (DM).',
         '',
-        globalHeader,
+        '📖 **Comment générer :**',
+        '1. Assurez-vous d\'avoir `discadia.gg/nextg3n` dans votre Statut Personnalisé Discord.',
+        '2. Cliquez sur le bouton du service souhaité ci-dessous.',
+        '3. Consultez vos messages privés pour récupérer vos accès !',
         '',
-        '### 📊 **Taux de Réussite des Services :**',
-        ...statsLines,
-        '',
-        '*N\'oubliez pas de donner votre avis en DM après chaque génération (Fonctionne 🟢 / Fonctionne pas 🔴) !*'
+        '⭐ *N\'oubliez pas de publier votre preuve et votre avis avec la commande `/proof` ou le bouton reçu en DM !*'
     ].join('\n');
 
     const embed = new EmbedBuilder()
@@ -854,26 +955,33 @@ function getPermissionOverwrites(guild, channelName, channelId) {
 async function sendProofRuleBanner(channel, lang = 'fr') {
     try {
         const isEnglish = lang === 'en' || channel.name.includes('proofs');
-        const title = isEnglish ? '📸 Proofs Channel' : '📸 Salon Preuves (Proofs)';
+        const title = isEnglish ? '⭐ Proofs & Reviews Channel' : '⭐ Salon Preuves & Avis (Proofs)';
         const desc = isEnglish ? [
-            'Please send your proof screenshots here!',
+            'Welcome to the official Proofs & Reviews channel!',
             '',
-            '📌 **Rule:** Only screenshots are allowed in this channel.',
-            '❌ **No chatting:** To chat, please use the general channel. Messages without images will be deleted.'
+            '⭐ **Submit your proof & review:** Click the button below or use `/proof` to share your rating and screenshot!',
+            '📌 **Auto-translation:** All reviews submitted are automatically translated into French and English across both channels.'
         ].join('\n') : [
-            'Merci d\'envoyer vos captures d\'écran de preuves ici !',
+            'Bienvenue dans le salon officiel des Preuves & Avis !',
             '',
-            '📌 **Consigne :** Seules les captures d\'écran sont autorisées dans ce salon.',
-            '❌ **Pas de bavardage :** Pour discuter, utilisez le salon général. Tout message sans image sera supprimé.'
+            '⭐ **Publier votre preuve & avis :** Cliquez sur le bouton ci-dessous ou utilisez la commande `/proof` pour partager votre note et votre capture d\'écran !',
+            '📌 **Traduction Automatique :** Tous les avis publiés sont automatiquement traduits en Français et en Anglais dans les 2 salons.'
         ].join('\n');
 
         const bannerEmbed = new EmbedBuilder()
             .setTitle(title)
             .setDescription(desc)
-            .setColor('#57F287')
+            .setColor('#FFD700')
             .setTimestamp();
 
-        const pinnedMsg = await channel.send({ embeds: [bannerEmbed] });
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('btn_channel_proof')
+                .setLabel(isEnglish ? '⭐ Submit Review & Proof' : '⭐ Publier un Avis & Preuve')
+                .setStyle(ButtonStyle.Success)
+        );
+
+        const pinnedMsg = await channel.send({ embeds: [bannerEmbed], components: [row] });
         await pinnedMsg.pin().catch(() => {});
         return pinnedMsg;
     } catch (e) {
@@ -971,7 +1079,12 @@ function buildSettingsDashboard(guild) {
                 .setLabel('Vérification & Sécurité')
                 .setDescription('Consulter la configuration anti-unverified')
                 .setValue('settings_cat_verify')
-                .setEmoji('🛡️')
+                .setEmoji('🛡️'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Catalogue des Services')
+                .setDescription('Définir les services en Free 🆓 ou Premium 👑')
+                .setValue('settings_cat_services')
+                .setEmoji('🛒')
         );
 
     const row1 = new ActionRowBuilder().addComponents(selectMenu);
@@ -1288,13 +1401,51 @@ async function registerCommands() {
                     .addRoleOption(option => option.setName('role_premium_en').setDescription('Rôle requis (Générateur Premium EN)'))
                     .addIntegerOption(option => option.setName('limite_journaliere').setDescription('Limite/jour (0=illimité)'))
                     .addStringOption(option => option.setName('gif_banner').setDescription('Lien URL du GIF/Bannière pour les panneaux'))
+            )
+            .addSubcommand(sub => 
+                sub.setName('service')
+                    .setDescription('Définit si un service est Gratuit (Free) ou Premium (VIP)')
+                    .addStringOption(option => option.setName('service').setDescription('Le service à modifier').setRequired(true).addChoices(...services.map(s => ({ name: s.label, value: s.id }))))
+                    .addStringOption(option => option.setName('statut').setDescription('Tier du service').setRequired(true).addChoices({ name: 'Gratuit (Free) 🆓', value: 'free' }, { name: 'Premium (VIP) 👑', value: 'premium' }))
             ),
         new SlashCommandBuilder()
             .setName('broadcast')
-            .setDescription('Envoie une annonce simultanément dans les salons Français et Anglais')
-            .addStringOption(option => option.setName('message_fr').setDescription('Message en français').setRequired(true))
-            .addStringOption(option => option.setName('message_en').setDescription('Message en anglais (optionnel)').setRequired(false))
+            .setDescription('Envoie une annonce simultanément dans les salons FR & EN avec traduction automatique par IA')
+            .addStringOption(option => option.setName('message').setDescription('Message de l\'annonce (sera automatiquement traduit en anglais/français)').setRequired(true))
+            .addStringOption(option => option.setName('message_en').setDescription('Message en anglais (optionnel pour forcer la version anglaise)').setRequired(false))
+            .addStringOption(option => option.setName('titre').setDescription('Titre personnalisé de l\'annonce').setRequired(false))
             .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+        new SlashCommandBuilder()
+            .setName('proof')
+            .setDescription('Publie un avis et une preuve (screenshot) de votre compte généré')
+            .addStringOption(option => 
+                option.setName('service')
+                    .setDescription('Le service généré')
+                    .setRequired(true)
+                    .addChoices(...services.map(s => ({ name: s.label, value: s.id })))
+            )
+            .addIntegerOption(option => 
+                option.setName('etoiles')
+                    .setDescription('Nombre d\'étoiles / Rating (1 à 5)')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: '⭐⭐⭐⭐⭐ (5/5)', value: 5 },
+                        { name: '⭐⭐⭐⭐ (4/5)', value: 4 },
+                        { name: '⭐⭐⭐ (3/5)', value: 3 },
+                        { name: '⭐⭐ (2/5)', value: 2 },
+                        { name: '⭐ (1/5)', value: 1 }
+                    )
+            )
+            .addStringOption(option => 
+                option.setName('avis')
+                    .setDescription('Votre avis / commentaire')
+                    .setRequired(true)
+            )
+            .addAttachmentOption(option => 
+                option.setName('capture')
+                    .setDescription('Capture d\'écran (screenshot) de preuve')
+                    .setRequired(false)
+            ),
         new SlashCommandBuilder()
             .setName('giveaway')
             .setDescription('Lance un giveaway bilingue simultané')
@@ -1534,15 +1685,16 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     }
 });
 
-// Modération salon proof
+// Modération et Transformation Automatique des Preuves en Embeds Bilingues
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
 
     if (message.channel.name.includes('proof')) {
-        const hasAttachment = message.attachments.size > 0;
-        const hasImageLink = /(https?:\/\/[^\s]+(?:\.png|\.jpg|\.jpeg|\.gif|\.webp))/i.test(message.content);
+        const firstAttachment = message.attachments.first();
+        const imageMatch = message.content.match(/(https?:\/\/[^\s]+(?:\.png|\.jpg|\.jpeg|\.gif|\.webp))/i);
+        const imageUrl = firstAttachment ? firstAttachment.url : (imageMatch ? imageMatch[1] : null);
 
-        if (!hasAttachment && !hasImageLink) {
+        if (!imageUrl) {
             try {
                 if (message.guild.members.me?.permissionsIn(message.channel).has(PermissionFlagsBits.ManageMessages)) {
                     await message.delete().catch(() => {});
@@ -1550,13 +1702,40 @@ client.on('messageCreate', async (message) => {
             } catch (e) {}
 
             const warningMsg = await message.channel.send({
-                content: `⚠️ <@${message.author.id}>, ce salon est uniquement réservé aux captures d'écran (proofs). Merci de ne pas y meubler de texte.`
+                content: `⚠️ <@${message.author.id}>, ce salon est réservé aux preuves (captures d'écran). Utilisez le bouton **⭐ Publier un Avis & Preuve** ci-dessus ou la commande \`/proof\` avec une capture d'écran !`
             }).catch(() => {});
 
             setTimeout(() => {
                 warningMsg?.delete().catch(() => {});
             }, 8000);
+            return;
         }
+
+        // Si une image est postée directement dans le salon proof :
+        let stars = 5;
+        const starMatch = message.content.match(/([1-5])\s*(?:\/5|étoile|etoile|star)/i);
+        if (starMatch) {
+            stars = parseInt(starMatch[1]);
+        }
+
+        let reviewText = message.content.replace(/(https?:\/\/[^\s]+(?:\.png|\.jpg|\.jpeg|\.gif|\.webp))/gi, '').trim();
+        if (!reviewText) reviewText = 'Compte valide et fonctionnel ! / Valid & working account!';
+
+        let matchedServiceId = 'generator';
+        for (const s of services) {
+            if (message.content.toLowerCase().includes(s.id) || message.content.toLowerCase().includes(s.label.toLowerCase())) {
+                matchedServiceId = s.id;
+                break;
+            }
+        }
+
+        try {
+            if (message.guild.members.me?.permissionsIn(message.channel).has(PermissionFlagsBits.ManageMessages)) {
+                await message.delete().catch(() => {});
+            }
+        } catch (e) {}
+
+        await sendBilingualProofEmbed(message.guild, message.author, matchedServiceId, stars, reviewText, imageUrl);
     }
 });
 
@@ -1627,6 +1806,58 @@ client.on('interactionCreate', async (interaction) => {
                     content: `✅ URL de la bannière GIF mise à jour avec succès ! Les panneaux s'actualisent automatiquement en direct.`,
                     flags: MessageFlags.Ephemeral
                 });
+            }
+            else if (customId === 'modal_channel_proof') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                const serviceStr = interaction.fields.getTextInputValue('service_input').trim();
+                const starsStr = interaction.fields.getTextInputValue('stars_input').trim();
+                const reviewStr = interaction.fields.getTextInputValue('review_input').trim();
+                const imageStr = interaction.fields.getTextInputValue('image_input')?.trim();
+
+                let stars = parseInt(starsStr) || 5;
+                if (stars < 1) stars = 1;
+                if (stars > 5) stars = 5;
+
+                const imageUrl = (imageStr && (imageStr.startsWith('http://') || imageStr.startsWith('https://'))) ? imageStr : null;
+
+                const success = await sendBilingualProofEmbed(interaction.guild, interaction.user, serviceStr.toLowerCase(), stars, reviewStr, imageUrl);
+
+                if (success) {
+                    await interaction.editReply({
+                        content: '🎉 **Merci pour votre avis !** Votre preuve et votre avis ont été traduits et publiés automatiquement dans les salons proof (FR & EN).'
+                    });
+                } else {
+                    await interaction.editReply({
+                        content: '⚠️ Erreur lors de la publication de votre avis.'
+                    });
+                }
+            }
+            else if (customId.startsWith('modal_dm_proof_')) {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                const serviceId = customId.replace('modal_dm_proof_', '');
+                const starsStr = interaction.fields.getTextInputValue('stars_input').trim();
+                const reviewStr = interaction.fields.getTextInputValue('review_input').trim();
+                const imageStr = interaction.fields.getTextInputValue('image_input')?.trim();
+
+                let stars = parseInt(starsStr) || 5;
+                if (stars < 1) stars = 1;
+                if (stars > 5) stars = 5;
+
+                const imageUrl = (imageStr && (imageStr.startsWith('http://') || imageStr.startsWith('https://'))) ? imageStr : null;
+
+                const success = await sendBilingualProofEmbed(interaction.guild, interaction.user, serviceId, stars, reviewStr, imageUrl);
+
+                if (success) {
+                    await interaction.editReply({
+                        content: '🎉 **Merci pour votre avis !** Votre preuve et votre avis ont été traduits et publiés automatiquement dans les salons proof (FR & EN).'
+                    });
+                } else {
+                    await interaction.editReply({
+                        content: '⚠️ Erreur lors de la publication de votre avis.'
+                    });
+                }
             }
             return;
         }
@@ -2054,11 +2285,19 @@ client.on('interactionCreate', async (interaction) => {
             else if (commandName === 'broadcast') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-                const msgFr = interaction.options.getString('message_fr');
+                const rawMsg = interaction.options.getString('message') || interaction.options.getString('message_fr');
                 let msgEn = interaction.options.getString('message_en');
+                const customTitle = interaction.options.getString('titre');
 
-                if (!msgEn) {
-                    msgEn = msgFr;
+                let msgFr = rawMsg;
+
+                if (process.env.GROQ_API_KEY) {
+                    if (!msgEn) {
+                        msgEn = await translateTextWithGroq(rawMsg, 'en');
+                    }
+                    msgFr = await translateTextWithGroq(rawMsg, 'fr');
+                } else if (!msgEn) {
+                    msgEn = rawMsg;
                 }
 
                 const guild = interaction.guild;
@@ -2070,7 +2309,7 @@ client.on('interactionCreate', async (interaction) => {
 
                 if (frCh && frCh.isTextBased()) {
                     const embedFr = new EmbedBuilder()
-                        .setTitle('📢 NextGen • Annonce Officielle')
+                        .setTitle(customTitle || '📢 NextGen • Annonce Officielle')
                         .setDescription(msgFr)
                         .setColor('#5865F2')
                         .setFooter({ text: 'NextGen FR', iconURL: client.user.displayAvatarURL() })
@@ -2081,7 +2320,7 @@ client.on('interactionCreate', async (interaction) => {
 
                 if (enCh && enCh.isTextBased()) {
                     const embedEn = new EmbedBuilder()
-                        .setTitle('📢 NextGen • Official Announcement')
+                        .setTitle(customTitle || '📢 NextGen • Official Announcement')
                         .setDescription(msgEn)
                         .setColor('#5865F2')
                         .setFooter({ text: 'NextGen EN', iconURL: client.user.displayAvatarURL() })
@@ -2091,8 +2330,32 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 await interaction.editReply({
-                    content: `✅ Broadcast effectué ! ${frSent ? `🇫🇷 Envoyé dans <#${frCh.id}>` : '⚠️ Salon FR non trouvé.'} | ${enSent ? `🇬🇧 Envoyé dans <#${enCh.id}>` : '⚠️ Salon EN non trouvé.'}`
+                    content: `✅ **Broadcast Bilingue Traduit par IA Publié !**\n${frSent ? `🇫🇷 Envoyé dans <#${frCh.id}>` : '⚠️ Salon FR non trouvé.'}\n${enSent ? `🇬🇧 Envoyé dans <#${enCh.id}>` : '⚠️ Salon EN non trouvé.'}`
                 });
+            }
+
+            // --- COMMANDE /proof ---
+            else if (commandName === 'proof') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                const serviceId = interaction.options.getString('service');
+                const starsCount = interaction.options.getInteger('etoiles');
+                const reviewText = interaction.options.getString('avis');
+                const attachment = interaction.options.getAttachment('capture');
+
+                const imageUrl = attachment ? attachment.url : null;
+
+                const success = await sendBilingualProofEmbed(interaction.guild, interaction.user, serviceId, starsCount, reviewText, imageUrl);
+
+                if (success) {
+                    await interaction.editReply({
+                        content: '🎉 **Merci pour votre avis !** Votre preuve et votre avis ont été traduits et publiés automatiquement dans les salons proof (FR & EN).'
+                    });
+                } else {
+                    await interaction.editReply({
+                        content: '⚠️ Impossible de trouver les salons proof sur ce serveur. Merci de contacter un administrateur.'
+                    });
+                }
             }
 
             // --- COMMANDE /deploy proof-rules ---
@@ -2583,10 +2846,6 @@ client.on('interactionCreate', async (interaction) => {
                 const attachment = interaction.options.getAttachment('fichier');
                 const groqApiKey = process.env.GROQ_API_KEY;
 
-                if (!groqApiKey) {
-                    return interaction.editReply({ content: '❌ Clé API Groq manquante dans la configuration (.env GROQ_API_KEY).' });
-                }
-
                 try {
                     const response = await fetch(attachment.url);
                     let textContent = await response.text();
@@ -2601,30 +2860,11 @@ Ne rajoute AUCUN texte, aucun bonjour, aucune explication. Donne uniquement la l
 Combos:
 ${textContent}`;
 
-                    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${groqApiKey}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            model: 'llama-3.3-70b-versatile',
-                            messages: [
-                                { role: 'user', content: prompt }
-                            ],
-                            temperature: 0.1,
-                            max_tokens: 4000
-                        })
-                    });
+                    const cleanedContent = await queryAI(prompt, 4000);
 
-                    if (!groqRes.ok) {
-                        const errText = await groqRes.text();
-                        console.error('Groq Error:', errText);
-                        return interaction.editReply({ content: "❌ Erreur de l'API Groq. Vérifiez la clé." });
+                    if (!cleanedContent) {
+                        return interaction.editReply({ content: "❌ Erreur d'exécution IA (Cerebras / Groq)." });
                     }
-
-                    const groqData = await groqRes.json();
-                    const cleanedContent = groqData.choices[0].message.content.trim();
 
                     const buffer = Buffer.from(cleanedContent, 'utf-8');
                     const attachmentToSend = new AttachmentBuilder(buffer, { name: 'combos_cleaned.txt' });
@@ -2988,26 +3228,11 @@ ${textContent}`;
 
                     const prompt = `Fais un audit de sécurité complet et anti-erreur pour ce serveur Discord. Analyse cette structure et vérifie que les permissions des générateurs et du système de vérification sont parfaites. Sois concis et donne un avis professionnel avec des recommandations.\n\nStructure:\n${summaryText}`;
 
-                    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${groqApiKey}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            model: 'llama-3.3-70b-versatile',
-                            messages: [{ role: 'user', content: prompt }],
-                            temperature: 0.2,
-                            max_tokens: 1000
-                        })
-                    });
+                    const auditReport = await queryAI(prompt, 1000);
 
-                    if (!groqRes.ok) {
-                        return interaction.editReply({ content: '❌ Erreur d\'appel à l\'IA Groq pour l\'audit.' });
+                    if (!auditReport) {
+                        return interaction.editReply({ content: '❌ Erreur d\'appel à l\'IA (Cerebras / Groq) pour l\'audit.' });
                     }
-
-                    const groqData = await groqRes.json();
-                    const auditReport = groqData.choices[0].message.content.trim();
 
                     const auditEmbed = new EmbedBuilder()
                         .setTitle('🤖 Rapport d\'Audit Anti-Erreur IA (Groq Llama-3.3)')
@@ -3148,7 +3373,84 @@ ${textContent}`;
                         embeds: [verifyEmbed],
                         flags: MessageFlags.Ephemeral
                     });
+                } else if (selectedVal === 'settings_cat_services') {
+                    const freeList = [];
+                    const premList = [];
+
+                    for (const s of services) {
+                        const tier = getServiceTier(guild.id, s.id);
+                        if (tier === 'premium') {
+                            premList.push(`👑 **${s.label}** \`[${s.id}]\``);
+                        } else {
+                            freeList.push(`🆓 **${s.label}** \`[${s.id}]\``);
+                        }
+                    }
+
+                    const servicesEmbed = new EmbedBuilder()
+                        .setTitle('🛒 Configuration du Tier des Services (Free / Premium)')
+                        .setDescription([
+                            'Voici la répartition actuelle des services pour votre serveur :',
+                            '',
+                            '### 🆓 **Services en Accès Free :**',
+                            freeList.length > 0 ? freeList.join('\n') : '`Aucun`',
+                            '',
+                            '### 👑 **Services en Accès Premium (VIP) :**',
+                            premList.length > 0 ? premList.join('\n') : '`Aucun`',
+                            '',
+                            '👉 *Choisissez un service dans le menu ci-dessous pour modifier son statut en direct !*'
+                        ].join('\n'))
+                        .setColor('#FEE75C');
+
+                    const serviceSelectRow = new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder()
+                            .setCustomId('select_service_tier')
+                            .setPlaceholder('🛒 Choisir un service à configurer...')
+                            .addOptions(services.map(s => ({
+                                label: s.label,
+                                description: `Statut actuel : ${getServiceTier(guild.id, s.id).toUpperCase()}`,
+                                value: s.id,
+                                emoji: getServiceTier(guild.id, s.id) === 'premium' ? '👑' : '🆓'
+                            })))
+                    );
+
+                    await interaction.reply({
+                        embeds: [servicesEmbed],
+                        components: [serviceSelectRow],
+                        flags: MessageFlags.Ephemeral
+                    });
                 }
+            } else if (customId === 'select_service_tier') {
+                const serviceId = values[0];
+                const sObj = services.find(s => s.id === serviceId);
+                const currentTier = getServiceTier(guild.id, serviceId);
+
+                const tierEmbed = new EmbedBuilder()
+                    .setTitle(`⚙️ Modification du Service : ${sObj ? sObj.label : serviceId}`)
+                    .setDescription([
+                        `Statut actuel : **${currentTier.toUpperCase()}** ${currentTier === 'premium' ? '👑' : '🆓'}`,
+                        '',
+                        'Cliquez sur l\'un des boutons ci-dessous pour modifier le statut :'
+                    ].join('\n'))
+                    .setColor('#5865F2');
+
+                const btnRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`btn_set_free_${serviceId}`)
+                        .setLabel('🆓 Passer en Free')
+                        .setStyle(ButtonStyle.Success)
+                        .setDisabled(currentTier === 'free'),
+                    new ButtonBuilder()
+                        .setCustomId(`btn_set_prem_${serviceId}`)
+                        .setLabel('👑 Passer en Premium')
+                        .setStyle(ButtonStyle.Primary)
+                        .setDisabled(currentTier === 'premium')
+                );
+
+                await interaction.reply({
+                    embeds: [tierEmbed],
+                    components: [btnRow],
+                    flags: MessageFlags.Ephemeral
+                });
             }
         }
 
@@ -3188,23 +3490,81 @@ ${textContent}`;
                 });
             }
 
-            // BOUTONS DE FEEDBACK DM
-            if (customId.startsWith('fb_work_') || customId.startsWith('fb_fail_')) {
-                const isWorking = customId.startsWith('fb_work_');
-                const serviceId = customId.replace(isWorking ? 'fb_work_' : 'fb_fail_', '');
-                const serviceObj = services.find(s => s.id === serviceId);
+            // BOUTONS DE PREUVE / AVIS
+            if (customId === 'btn_channel_proof') {
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_channel_proof')
+                    .setTitle('⭐ Publier un Avis & Preuve');
 
-                await addTursoFeedback(serviceId, isWorking, user.id);
+                const serviceInput = new TextInputBuilder()
+                    .setCustomId('service_input')
+                    .setLabel('Service généré (ex: Netflix, Roblox...)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('Ex: Netflix')
+                    .setRequired(true);
 
-                const confirmEmbed = new EmbedBuilder()
-                    .setTitle(isWorking ? '✅ Retour Enregistré !' : '⚠️ Signalement Enregistré')
-                    .setDescription(isWorking 
-                        ? `Merci pour votre avis ! Vous avez confirmé que le compte **${serviceObj ? serviceObj.label : serviceId}** fonctionne correctement.`
-                        : `Merci pour votre retour ! Votre signalement pour le compte **${serviceObj ? serviceObj.label : serviceId}** a bien été pris en compte.`)
-                    .setColor(isWorking ? '#57F287' : '#ED4245')
-                    .setTimestamp();
+                const starsInput = new TextInputBuilder()
+                    .setCustomId('stars_input')
+                    .setLabel('Note sur 5 (Nombre d\'étoiles : 1 à 5)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('Ex: 5')
+                    .setRequired(true);
 
-                return interaction.reply({ embeds: [confirmEmbed] });
+                const reviewInput = new TextInputBuilder()
+                    .setCustomId('review_input')
+                    .setLabel('Votre avis / commentaire')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('Ex: Super compte, fonctionne nickel !')
+                    .setRequired(true);
+
+                const imageInput = new TextInputBuilder()
+                    .setCustomId('image_input')
+                    .setLabel('Lien URL du screenshot (optionnel)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('Ex: https://i.goopics.net/xxx.png')
+                    .setRequired(false);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(serviceInput),
+                    new ActionRowBuilder().addComponents(starsInput),
+                    new ActionRowBuilder().addComponents(reviewInput),
+                    new ActionRowBuilder().addComponents(imageInput)
+                );
+                return interaction.showModal(modal);
+            }
+            else if (customId.startsWith('btn_dm_proof_')) {
+                const serviceId = customId.replace('btn_dm_proof_', '');
+                const modal = new ModalBuilder()
+                    .setCustomId(`modal_dm_proof_${serviceId}`)
+                    .setTitle('⭐ Publier un Avis & Preuve');
+
+                const starsInput = new TextInputBuilder()
+                    .setCustomId('stars_input')
+                    .setLabel('Note sur 5 (Nombre d\'étoiles : 1 à 5)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('Ex: 5')
+                    .setRequired(true);
+
+                const reviewInput = new TextInputBuilder()
+                    .setCustomId('review_input')
+                    .setLabel('Votre avis / commentaire')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('Ex: Compte fonctionnel direct, merci !')
+                    .setRequired(true);
+
+                const imageInput = new TextInputBuilder()
+                    .setCustomId('image_input')
+                    .setLabel('Lien URL du screenshot (optionnel)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('Ex: https://i.imgur.com/xxx.png')
+                    .setRequired(false);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(starsInput),
+                    new ActionRowBuilder().addComponents(reviewInput),
+                    new ActionRowBuilder().addComponents(imageInput)
+                );
+                return interaction.showModal(modal);
             }
 
             // BOUTONS SETTINGS
@@ -3252,6 +3612,24 @@ ${textContent}`;
 
                 modal.addComponents(new ActionRowBuilder().addComponents(gifInput));
                 await interaction.showModal(modal);
+            }
+            else if (customId.startsWith('btn_set_free_')) {
+                const serviceId = customId.replace('btn_set_free_', '');
+                const sObj = services.find(s => s.id === serviceId);
+                setServiceTier(guild.id, serviceId, 'free');
+                await interaction.reply({
+                    content: `✅ Le service **${sObj ? sObj.label : serviceId}** est désormais **GRATUIT (Free)** 🆓 !\n*Les panneaux de génération s'actualisent automatiquement en direct d'ici 5 secondes.*`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+            else if (customId.startsWith('btn_set_prem_')) {
+                const serviceId = customId.replace('btn_set_prem_', '');
+                const sObj = services.find(s => s.id === serviceId);
+                setServiceTier(guild.id, serviceId, 'premium');
+                await interaction.reply({
+                    content: `👑 Le service **${sObj ? sObj.label : serviceId}** est désormais **PREMIUM (VIP)** 👑 !\n*Les panneaux de génération s'actualisent automatiquement en direct d'ici 5 secondes.*`,
+                    flags: MessageFlags.Ephemeral
+                });
             }
             else if (customId === 'settings_btn_reset') {
                 setGuildConfig(guild.id, 'cooldown', 60);
@@ -3384,7 +3762,8 @@ ${textContent}`;
                     }
                 }
 
-                if (serviceObj && serviceObj.tier === 'premium') {
+                const effectiveTier = serviceObj ? getServiceTier(guild.id, serviceObj.id) : 'free';
+                if (serviceObj && effectiveTier === 'premium') {
                     if (premiumRoleId && member && !member.roles.cache.has(premiumRoleId)) {
                         return interaction.reply({
                             content: isEnglishUser 
@@ -3457,25 +3836,21 @@ ${textContent}`;
                             realAccountCombo,
                             '```',
                             '',
-                            '📌 *Merci d\'indiquer ci-dessous si le compte fonctionne pour mettre à jour les statistiques en direct !*'
+                            '⭐ *N\'oubliez pas de publier votre preuve et votre avis pour aider la communauté !*'
                         ].join('\n'))
                         .setColor('#5865F2')
                         .setTimestamp();
 
-                    const feedbackRow = new ActionRowBuilder().addComponents(
+                    const proofRow = new ActionRowBuilder().addComponents(
                         new ButtonBuilder()
-                            .setCustomId(`fb_work_${serviceId}`)
-                            .setLabel('🟢 Fonctionne')
-                            .setStyle(ButtonStyle.Success),
-                        new ButtonBuilder()
-                            .setCustomId(`fb_fail_${serviceId}`)
-                            .setLabel('🔴 Ne fonctionne pas')
-                            .setStyle(ButtonStyle.Danger)
+                            .setCustomId(`btn_dm_proof_${serviceId}`)
+                            .setLabel('⭐ Laisser un Avis & Preuve')
+                            .setStyle(ButtonStyle.Success)
                     );
 
                     await user.send({
                         embeds: [dmEmbed],
-                        components: [feedbackRow]
+                        components: [proofRow]
                     });
                 } catch (err) {
                     dmSent = false;
