@@ -13,6 +13,7 @@ const {
     MessageFlags,
     StringSelectMenuBuilder,
     StringSelectMenuOptionBuilder,
+    RoleSelectMenuBuilder,
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
@@ -474,12 +475,13 @@ async function buildPanelEmbed(guild, lang = 'fr', tier = 'free') {
             : `⭐ **Taux de Réussite Global :** ⏳ *Attente des premiers avis...*`;
     }
 
-    const newBannerUrl = 'https://i.goopics.net/mkvcwm.gif';
+    const customGifUrl = getGuildConfig(guild.id, 'panelGifUrl');
+    const newBannerUrl = customGifUrl || 'https://i.goopics.net/mkvcwm.gif';
     const localGifPath = 'D:/Download Twp/ff7adda344439436df0991801fb91272.gif';
     let bannerAttachment = null;
     let imageTarget = newBannerUrl;
 
-    if (fs.existsSync(localGifPath)) {
+    if (!customGifUrl && fs.existsSync(localGifPath)) {
         bannerAttachment = new AttachmentBuilder(localGifPath, { name: 'banner.gif' });
         imageTarget = 'attachment://banner.gif';
     }
@@ -602,17 +604,27 @@ const channelPermissionConfigs = {
     '🚀・premium-gen': { premiumOnly: true }
 };
 
-function getPermissionOverwrites(guild, channelName) {
+function getPermissionOverwrites(guild, channelName, channelId) {
     const everyoneRole = guild.roles.everyone;
     const notRegRole = guild.roles.cache.find(r => r.name === 'Not Registered');
     const countryChoiceRole = guild.roles.cache.find(r => r.name === 'Country Choice');
-    const overwrites = [];
+    const frRole = guild.roles.cache.find(r => r.name === '🇫🇷 Français');
+    const enRole = guild.roles.cache.find(r => r.name === '🇬🇧 English');
+    
+    // Find Premium Role & Required Role
+    const premiumRoleId = getGuildConfig(guild.id, 'premiumRoleId');
+    const reqRoleId = getGuildConfig(guild.id, 'requiredRoleId');
 
-    if (channelName.includes('verify')) {
-        overwrites.push({
-            id: everyoneRole.id,
-            deny: [PermissionFlagsBits.ViewChannel]
-        });
+    const premiumRole = (premiumRoleId ? guild.roles.cache.get(premiumRoleId) : null) 
+        || guild.roles.cache.find(r => r.name.toLowerCase().includes('premium') || r.name.toLowerCase().includes('vip'));
+    const reqRole = reqRoleId ? guild.roles.cache.get(reqRoleId) : null;
+
+    const overwrites = [];
+    const nameLower = channelName.toLowerCase();
+
+    // 1. Verify channel
+    if (nameLower.includes('verify')) {
+        overwrites.push({ id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] });
         if (notRegRole) {
             overwrites.push({
                 id: notRegRole.id,
@@ -620,14 +632,16 @@ function getPermissionOverwrites(guild, channelName) {
                 deny: [PermissionFlagsBits.SendMessages]
             });
         }
+        if (countryChoiceRole) overwrites.push({ id: countryChoiceRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        if (frRole) overwrites.push({ id: frRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        if (enRole) overwrites.push({ id: enRole.id, deny: [PermissionFlagsBits.ViewChannel] });
         return overwrites;
     }
 
-    if (channelName.includes('country')) {
-        overwrites.push({
-            id: everyoneRole.id,
-            deny: [PermissionFlagsBits.ViewChannel]
-        });
+    // 2. Country Choice channel
+    if (nameLower.includes('country')) {
+        overwrites.push({ id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        if (notRegRole) overwrites.push({ id: notRegRole.id, deny: [PermissionFlagsBits.ViewChannel] });
         if (countryChoiceRole) {
             overwrites.push({
                 id: countryChoiceRole.id,
@@ -635,28 +649,89 @@ function getPermissionOverwrites(guild, channelName) {
                 deny: [PermissionFlagsBits.SendMessages]
             });
         }
+        if (frRole) overwrites.push({ id: frRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        if (enRole) overwrites.push({ id: enRole.id, deny: [PermissionFlagsBits.ViewChannel] });
         return overwrites;
     }
 
     // Default for all other channels: hide from everyone, not reg, country choice
-    overwrites.push({
-        id: everyoneRole.id,
-        deny: [PermissionFlagsBits.ViewChannel]
-    });
-    if (notRegRole) {
-        overwrites.push({ id: notRegRole.id, deny: [PermissionFlagsBits.ViewChannel] });
-    }
-    if (countryChoiceRole) {
-        overwrites.push({ id: countryChoiceRole.id, deny: [PermissionFlagsBits.ViewChannel] });
-    }
+    overwrites.push({ id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+    if (notRegRole) overwrites.push({ id: notRegRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+    if (countryChoiceRole) overwrites.push({ id: countryChoiceRole.id, deny: [PermissionFlagsBits.ViewChannel] });
 
     const config = channelPermissionConfigs[channelName] || { readOnly: false };
 
-    if (config.readOnly) {
-        overwrites.push({
-            id: everyoneRole.id,
-            deny: [PermissionFlagsBits.SendMessages]
-        });
+    // 3. Premium Generator channels
+    if (config.premiumOnly || nameLower.includes('premium')) {
+        if (frRole) overwrites.push({ id: frRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        if (enRole) overwrites.push({ id: enRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        
+        if (premiumRole) {
+            overwrites.push({
+                id: premiumRole.id,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                deny: [PermissionFlagsBits.SendMessages]
+            });
+        }
+        return overwrites;
+    }
+
+    // 4. Free Generator channels (including IDs 1532367071273291817 & 1532367088809676975)
+    const isFrGen = channelId === '1532367071273291817' || nameLower.includes('gen-free') || (nameLower.includes('gen') && !nameLower.includes('en'));
+    const isEnGen = channelId === '1532367088809676975' || nameLower.includes('free-gen') || (nameLower.includes('gen') && nameLower.includes('en'));
+
+    if (isFrGen || isEnGen || nameLower.includes('générateur') || nameLower.includes('generator')) {
+        if (isEnGen) {
+            if (enRole) overwrites.push({ id: enRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
+            if (frRole) overwrites.push({ id: frRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        } else {
+            if (frRole) overwrites.push({ id: frRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
+            if (enRole) overwrites.push({ id: enRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        }
+
+        // Grant access to configured Required Role if present
+        if (reqRole) {
+            overwrites.push({ id: reqRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
+        }
+
+        return overwrites;
+    }
+
+    // 5. Invites channels (1532367061974519998 & 1532367078030446602)
+    const isFrInv = channelId === '1532367061974519998' || (nameLower.includes('invite') && !nameLower.includes('en'));
+    const isEnInv = channelId === '1532367078030446602' || nameLower.includes('invites') || (nameLower.includes('invite') && nameLower.includes('en'));
+
+    if (isFrInv || isEnInv) {
+        if (isEnInv) {
+            if (enRole) overwrites.push({ id: enRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
+            if (frRole) overwrites.push({ id: frRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        } else {
+            if (frRole) overwrites.push({ id: frRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] });
+            if (enRole) overwrites.push({ id: enRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        }
+        return overwrites;
+    }
+
+    // 6. Normal Language-specific channels
+    const isEnglishChannel = nameLower.includes('-en') || nameLower.includes('announcements') || nameLower.includes('proofs') || nameLower.includes('tickets') || nameLower.includes('drops') || nameLower.includes('restocks');
+    
+    if (isEnglishChannel) {
+        if (enRole) {
+            const allowPerms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory];
+            const denyPerms = config.readOnly ? [PermissionFlagsBits.SendMessages] : [];
+            if (config.allowReactions) allowPerms.push(PermissionFlagsBits.AddReactions);
+            overwrites.push({ id: enRole.id, allow: allowPerms, deny: denyPerms });
+        }
+        if (frRole) overwrites.push({ id: frRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+    } else {
+        // French Channel (Default)
+        if (frRole) {
+            const allowPerms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory];
+            const denyPerms = config.readOnly ? [PermissionFlagsBits.SendMessages] : [];
+            if (config.allowReactions) allowPerms.push(PermissionFlagsBits.AddReactions);
+            overwrites.push({ id: frRole.id, allow: allowPerms, deny: denyPerms });
+        }
+        if (enRole) overwrites.push({ id: enRole.id, deny: [PermissionFlagsBits.ViewChannel] });
     }
 
     return overwrites;
@@ -682,6 +757,50 @@ async function sendProofRuleBanner(channel, lang = 'fr') {
             .setTitle(title)
             .setDescription(desc)
             .setColor('#57F287')
+            .setTimestamp();
+
+        const pinnedMsg = await channel.send({ embeds: [bannerEmbed] });
+        await pinnedMsg.pin().catch(() => {});
+        return pinnedMsg;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function sendInviteRulesBanner(channel, lang = 'fr') {
+    try {
+        const isEnglish = lang === 'en' || channel.id === '1532367078030446602' || channel.name.includes('invites');
+        const title = isEnglish ? '📩 Invites & Rewards' : '📩 Invitations & Récompenses';
+        const desc = isEnglish ? [
+            'Welcome to the invite channel!',
+            '',
+            '📌 **How to invite friends?**',
+            '1. Create your personal non-expiring invite link.',
+            '2. Share it with your friends.',
+            '',
+            '🎁 **Rewards:**',
+            '• **5 Invites:** VIP Generator access for 3 days',
+            '• **10 Invites:** Permanent VIP Role + Exclusive badges',
+            '',
+            '⚠️ *Fake accounts and self-invites are automatically detected and disqualified.*'
+        ].join('\n') : [
+            'Bienvenue dans le salon des invitations !',
+            '',
+            '📌 **Comment inviter vos amis ?**',
+            '1. Créez votre propre lien d\'invitation personnel (non expirant).',
+            '2. Partagez-le avec vos amis.',
+            '',
+            '🎁 **Récompenses :**',
+            '• **5 Invitations :** Accès VIP Générateur pendant 3 jours',
+            '• **10 Invitations :** Rôle VIP Permanent + Badges exclusifs',
+            '',
+            '⚠️ *Les faux comptes et auto-invitations sont automatiquement détectés et disqualifiés.*'
+        ].join('\n');
+
+        const bannerEmbed = new EmbedBuilder()
+            .setTitle(title)
+            .setDescription(desc)
+            .setColor('#5865F2')
             .setTimestamp();
 
         const pinnedMsg = await channel.send({ embeds: [bannerEmbed] });
@@ -993,7 +1112,7 @@ async function registerCommands() {
         new SlashCommandBuilder()
             .setName('deploy')
             .setDescription('Déploie un panel système dans un salon')
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
             .addSubcommand(sub =>
                 sub.setName('generator')
                     .setDescription('Affiche le panel de génération NextGen')
@@ -1033,6 +1152,7 @@ async function registerCommands() {
             .addSubcommand(sub => sub.setName('roles').setDescription('Duplique et traduit tous les rôles du serveur en anglais'))
             .addSubcommand(sub => sub.setName('channels').setDescription('Crée l\'arborescence des salons du serveur'))
             .addSubcommand(sub => sub.setName('permissions').setDescription('Ajuste les permissions globales des rôles et salons'))
+            .addSubcommand(sub => sub.setName('audit').setDescription('Effectue une révision automatique anti-erreur du serveur via l\'IA Groq'))
             .addSubcommand(sub => sub.setName('en-fr').setDescription('Purge le serveur et déploie le système de sécurité complet')),
         new SlashCommandBuilder()
             .setName('config')
@@ -1051,37 +1171,38 @@ async function registerCommands() {
                     .addRoleOption(option => option.setName('role_requis').setDescription('Rôle requis (générateur basique)'))
                     .addRoleOption(option => option.setName('role_premium').setDescription('Rôle requis (générateur premium)'))
                     .addIntegerOption(option => option.setName('limite_journaliere').setDescription('Limite/jour (0=illimité)'))
+                    .addStringOption(option => option.setName('gif_banner').setDescription('Lien URL du GIF/Bannière pour les panneaux'))
             ),
         new SlashCommandBuilder()
             .setName('broadcast')
             .setDescription('Envoie une annonce simultanément dans les salons Français et Anglais')
             .addStringOption(option => option.setName('message_fr').setDescription('Message en français').setRequired(true))
             .addStringOption(option => option.setName('message_en').setDescription('Message en anglais (optionnel)').setRequired(false))
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
         new SlashCommandBuilder()
             .setName('giveaway')
             .setDescription('Lance un giveaway bilingue simultané')
             .addStringOption(option => option.setName('prix').setDescription('Le lot à gagner').setRequired(true))
             .addStringOption(option => option.setName('duree').setDescription('Durée (ex: 10m, 1h, 24h)').setRequired(true))
             .addIntegerOption(option => option.setName('gagnants').setDescription('Nombre de gagnants (1 par défaut)').setRequired(false))
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
         new SlashCommandBuilder()
             .setName('drops')
             .setDescription('Droppe des comptes/combos dans le salon drop')
             .addStringOption(option => option.setName('service').setDescription('Nom du service').setRequired(true))
             .addStringOption(option => option.setName('combos').setDescription('Les identifiants/combos à dropper').setRequired(true))
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
         new SlashCommandBuilder()
             .setName('restock')
             .setDescription('Ajoute du stock pour un service (multilingue FR/EN)')
             .addStringOption(option => option.setName('service').setDescription('Le service à restocker').setRequired(true).addChoices(...services.map(s => ({ name: s.label, value: s.label }))))
             .addAttachmentOption(option => option.setName('fichier').setDescription('Fichier texte (.txt) contenant les combos').setRequired(true))
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
         new SlashCommandBuilder()
             .setName('combo-cleaner')
             .setDescription('Nettoie un fichier de combos via l\'IA Groq (Llama-3.3)')
             .addAttachmentOption(option => option.setName('fichier').setDescription('Fichier texte (.txt) contenant les combos sales').setRequired(true))
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
         new SlashCommandBuilder()
             .setName('give-premgen')
             .setDescription('Donne l\'accès Premium Générateur à un utilisateur')
@@ -1358,11 +1479,42 @@ client.on('interactionCreate', async (interaction) => {
                     flags: MessageFlags.Ephemeral
                 });
             }
+            else if (customId === 'modal_settings_gif') {
+                const gifUrl = interaction.fields.getTextInputValue('gif_input').trim();
+                if (!gifUrl.startsWith('http://') && !gifUrl.startsWith('https://')) {
+                    return interaction.reply({
+                        content: '❌ Veuillez saisir un lien URL valide (http:// ou https://).',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+                setGuildConfig(guild.id, 'panelGifUrl', gifUrl);
+                await interaction.reply({
+                    content: `✅ URL de la bannière GIF mise à jour avec succès ! Les panneaux s'actualisent automatiquement en direct.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
             return;
         }
 
         if (interaction.isChatInputCommand()) {
             const { commandName } = interaction;
+
+            // --- RESTRICTION STRICTE DES COMMANDES AUX HAUTS PLACÉS (STAFF / ADMINS) ---
+            const staffCommands = ['deploy', 'setup', 'config', 'broadcast', 'giveaway', 'drops', 'restock', 'combo-cleaner', 'give-premgen', 'remove-premgen'];
+            if (staffCommands.includes(commandName)) {
+                const isOwner = interaction.guild?.ownerId === interaction.user.id;
+                const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) || interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+                const isStaffRole = interaction.member?.roles.cache.some(r => 
+                    ['fondateur', 'founder', 'administrateur', 'administrator', 'modérateur', 'moderator', 'staff', 'owner', 'co-owner'].some(k => r.name.toLowerCase().includes(k))
+                );
+
+                if (!isOwner && !isAdmin && !isStaffRole) {
+                    return interaction.reply({
+                        content: '❌ **Accès Refusé** : Cette commande est strictement réservée aux hauts placés de l\'équipe (Administrateurs & Staff).',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+            }
 
             if (commandName === 'config' && interaction.options.getSubcommand() === 'dashboard') {
                 const dashboard = buildSettingsDashboard(interaction.guild);
@@ -1937,35 +2089,33 @@ client.on('interactionCreate', async (interaction) => {
 
                 const guild = interaction.guild;
                 const targetChannel = interaction.options.getChannel('salon') || guild.channels.cache.find(c => c.name.includes('verify')) || interaction.channel;
-                const langOpt = interaction.options.getString('langue');
-                const lang = langOpt || 'fr';
 
                 const oauthUrl = `https://discord.com/oauth2/authorize?client_id=${process.env.CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=guilds.join+identify`;
 
-                const verifyTitle = lang === 'en' ? '🛡️ Server Verification' : '🛡️ Vérification du Serveur';
-                const verifyDesc = lang === 'en' ? [
-                    'Welcome to the server! Please verify below to access channels and generators.',
-                    '',
-                    '1. Click the **Verify** button below.',
-                    '2. Accept authorization.',
-                    '3. Channel `🌍・country` will appear to select your language!'
-                ].join('\n') : [
-                    'Bienvenue sur le serveur ! Pour accéder aux salons et aux générateurs, merci de vous vérifier ci-dessous.',
-                    '',
-                    '1. Cliquez sur le bouton **Se Vérifier** ci-dessous.',
-                    '2. Acceptez l\'autorisation.',
-                    '3. Le salon `🌍・country` s\'affichera pour choisir votre pays !'
-                ].join('\n');
-
                 const verifyEmbed = new EmbedBuilder()
-                    .setTitle(verifyTitle)
-                    .setDescription(verifyDesc)
+                    .setTitle('🛡️ Vérification du Serveur / Server Verification')
+                    .setDescription([
+                        '🇫🇷 **FRANÇAIS :**',
+                        'Bienvenue sur le serveur ! Pour accéder aux salons et aux générateurs, merci de vous vérifier ci-dessous.',
+                        '1. Cliquez sur le bouton **Se Vérifier** ci-dessous.',
+                        '2. Acceptez l\'autorisation.',
+                        '3. Le salon `🌍・country` s\'affichera pour choisir votre pays !',
+                        '',
+                        '──────────────────────────',
+                        '',
+                        '🇬🇧 **ENGLISH :**',
+                        'Welcome to the server! Please verify below to access channels and generators.',
+                        '1. Click the **Verify** button below.',
+                        '2. Accept authorization.',
+                        '3. Channel `🌍・country` will appear to select your language!'
+                    ].join('\n'))
                     .setColor('#57F287')
-                    .setTimestamp();
+                    .setTimestamp()
+                    .setFooter({ text: 'NextGen Security System', iconURL: guild.iconURL() });
 
                 const row = new ActionRowBuilder().addComponents(
                     new ButtonBuilder()
-                        .setLabel(lang === 'en' ? '🛡️ Verify' : '🛡️ Se Vérifier')
+                        .setLabel('🛡️ Se Vérifier / Verify')
                         .setStyle(ButtonStyle.Link)
                         .setURL(oauthUrl)
                 );
@@ -1976,7 +2126,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
 
                 await interaction.editReply({
-                    content: `✅ Panneau de vérification (${lang.toUpperCase()}) déployé dans <#${targetChannel.id}>.`
+                    content: `✅ Panel de vérification bilingue (FR/EN) déployé dans <#${targetChannel.id}>.`
                 });
             }
 
@@ -2045,6 +2195,7 @@ client.on('interactionCreate', async (interaction) => {
                 const roleInput = interaction.options.getRole('role_requis');
                 const rolePremiumInput = interaction.options.getRole('role_premium');
                 const limitInput = interaction.options.getInteger('limite_journaliere');
+                const gifBannerInput = interaction.options.getString('gif_banner');
 
                 if (cooldownInput !== null) {
                     setGuildConfig(interaction.guild.id, 'cooldown', cooldownInput);
@@ -2058,11 +2209,15 @@ client.on('interactionCreate', async (interaction) => {
                 if (limitInput !== null) {
                     setGuildConfig(interaction.guild.id, 'dailyLimit', limitInput);
                 }
+                if (gifBannerInput !== null) {
+                    setGuildConfig(interaction.guild.id, 'panelGifUrl', gifBannerInput);
+                }
 
                 const currentCooldown = getGuildConfig(interaction.guild.id, 'cooldown') ?? 60;
                 const currentReqRole = getGuildConfig(interaction.guild.id, 'requiredRoleId');
                 const currentPremiumRole = getGuildConfig(interaction.guild.id, 'premiumRoleId');
                 const currentLimit = getGuildConfig(interaction.guild.id, 'dailyLimit') ?? 0;
+                const currentGif = getGuildConfig(interaction.guild.id, 'panelGifUrl');
 
                 const settingsEmbed = new EmbedBuilder()
                     .setTitle('⚡ Configuration du Générateur NextGen')
@@ -2073,6 +2228,7 @@ client.on('interactionCreate', async (interaction) => {
                         `🔑 **Rôle requis (Free) :** ${currentReqRole ? `<@&${currentReqRole}>` : '`Aucun (Ouvert aux membres vérifiés)`'}`,
                         `👑 **Rôle Premium requis :** ${currentPremiumRole ? `<@&${currentPremiumRole}>` : '`Aucun`'}`,
                         `📊 **Limite journalière :** ${currentLimit > 0 ? `**${currentLimit}** générations par jour` : '`Illimitée`'}`,
+                        `🖼️ **Bannière GIF :** ${currentGif ? `[Voir le GIF](${currentGif})` : '`GIF Par Défaut`'}`,
                         '',
                         '*Utilisez les paramètres de la commande `/config gen` ou le dashboard `/settings` pour modifier ces valeurs.*'
                     ].join('\n'))
@@ -2572,17 +2728,21 @@ ${textContent}`;
 
                     // Update channels
                     for (const [id, ch] of channels) {
-                        if (ch && ch.type === ChannelType.GuildText && (channelPermissionConfigs[ch.name] || ch.name.includes('verify') || ch.name.includes('country'))) {
-                            const overwrites = getPermissionOverwrites(guild, ch.name);
+                        if (ch && ch.type === ChannelType.GuildText) {
+                            const overwrites = getPermissionOverwrites(guild, ch.name, ch.id);
                             await ch.permissionOverwrites.set(overwrites);
 
                             if (ch.name === '✅・proof' || ch.name === '✅・proofs') {
                                 await sendProofRuleBanner(ch, ch.name.includes('proofs') ? 'en' : 'fr');
                             }
 
+                            if (ch.id === '1532367061974519998' || ch.id === '1532367078030446602' || ch.name.includes('invite')) {
+                                await sendInviteRulesBanner(ch, ch.id === '1532367078030446602' || ch.name.includes('invites') ? 'en' : 'fr');
+                            }
+
                             const permType = channelPermissionConfigs[ch.name]?.readOnly 
                                 ? '🔒 *(Lecture Seule)*' 
-                                : (channelPermissionConfigs[ch.name]?.proofRules ? '📸 *(Proofs)*' : (channelPermissionConfigs[ch.name]?.premiumOnly ? '⭐ *(Premium)*' : '💬 *(Public)*'));
+                                : (channelPermissionConfigs[ch.name]?.proofRules ? '📸 *(Proofs)*' : (channelPermissionConfigs[ch.name]?.premiumOnly || ch.name.includes('premium') ? '⭐ *(Premium)*' : '💬 *(Public)*'));
 
                             updatedChannels.push(`- <#${ch.id}> (\`${ch.name}\`) : ${permType}`);
                         }
@@ -2647,7 +2807,101 @@ ${textContent}`;
                     });
                 }
             }
+
+            else if (commandName === 'setup' && interaction.options.getSubcommand() === 'audit') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const guild = interaction.guild;
+                const groqApiKey = process.env.GROQ_API_KEY;
+
+                try {
+                    const roles = guild.roles.cache.map(r => `${r.name} (ID: ${r.id})`).join(', ');
+                    const textChannels = guild.channels.cache
+                        .filter(c => c.type === ChannelType.GuildText)
+                        .map(c => `${c.name} (ID: ${c.id})`)
+                        .join('\n');
+
+                    const reqRole = getGuildConfig(guild.id, 'requiredRoleId');
+                    const premRole = getGuildConfig(guild.id, 'premiumRoleId');
+
+                    const summaryText = `Rôles serveur: ${roles}\n\nSalons textuels:\n${textChannels}\n\nRôle requis Free: ${reqRole || 'aucun'}\nRôle requis Premium: ${premRole || 'aucun'}`;
+
+                    if (!groqApiKey) {
+                        const localAuditEmbed = new EmbedBuilder()
+                            .setTitle('🔍 Audit de Sécurité Anti-Erreur (Local)')
+                            .setDescription([
+                                '✅ **Vérifications de base effectuées :**',
+                                '• Rôles de pays (`🇫🇷 Français`, `🇬🇧 English`) détectés.',
+                                `• Rôle Générateur Free : ${reqRole ? `<@&${reqRole}>` : '`Non configuré (ouvert aux membres)`'}`,
+                                `• Rôle Générateur Premium : ${premRole ? `<@&${premRole}>` : '`Non configuré (ouvert aux membres VIP)`'}`,
+                                '• Permissions de salons configurées avec masquage `@everyone`.',
+                                '',
+                                '*Pour activer la révision IA avancée via Groq, configurez GROQ_API_KEY dans votre fichier .env ou sur Render.*'
+                            ].join('\n'))
+                            .setColor('#57F287')
+                            .setTimestamp();
+
+                        return interaction.editReply({ embeds: [localAuditEmbed] });
+                    }
+
+                    const prompt = `Fais un audit de sécurité complet et anti-erreur pour ce serveur Discord. Analyse cette structure et vérifie que les permissions des générateurs et du système de vérification sont parfaites. Sois concis et donne un avis professionnel avec des recommandations.\n\nStructure:\n${summaryText}`;
+
+                    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${groqApiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            model: 'llama-3.3-70b-versatile',
+                            messages: [{ role: 'user', content: prompt }],
+                            temperature: 0.2,
+                            max_tokens: 1000
+                        })
+                    });
+
+                    if (!groqRes.ok) {
+                        return interaction.editReply({ content: '❌ Erreur d\'appel à l\'IA Groq pour l\'audit.' });
+                    }
+
+                    const groqData = await groqRes.json();
+                    const auditReport = groqData.choices[0].message.content.trim();
+
+                    const auditEmbed = new EmbedBuilder()
+                        .setTitle('🤖 Rapport d\'Audit Anti-Erreur IA (Groq Llama-3.3)')
+                        .setDescription(auditReport.slice(0, 4000))
+                        .setColor('#FFD700')
+                        .setTimestamp()
+                        .setFooter({ text: 'NextGen Security Audit', iconURL: interaction.client.user.displayAvatarURL() });
+
+                    await interaction.editReply({ embeds: [auditEmbed] });
+
+                } catch (e) {
+                    console.error('Audit Error:', e);
+                    await interaction.editReply({ content: '❌ Erreur pendant l\'audit.' });
+                }
+            }
         } 
+
+        else if (interaction.isRoleSelectMenu()) {
+            const { customId, values, guild } = interaction;
+            const selectedRoleId = values[0];
+
+            if (customId === 'select_role_requis') {
+                setGuildConfig(guild.id, 'requiredRoleId', selectedRoleId || null);
+                const roleMention = selectedRoleId ? `<@&${selectedRoleId}>` : '`Aucun`';
+                await interaction.reply({
+                    content: `✅ Rôle requis pour le Générateur Free mis à jour sur ${roleMention}.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            } else if (customId === 'select_role_premium') {
+                setGuildConfig(guild.id, 'premiumRoleId', selectedRoleId || null);
+                const roleMention = selectedRoleId ? `<@&${selectedRoleId}>` : '`Aucun`';
+                await interaction.reply({
+                    content: `✅ Rôle requis pour le Générateur Premium mis à jour sur ${roleMention}.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+        }
 
         else if (interaction.isStringSelectMenu()) {
             const { customId, values, guild } = interaction;
@@ -2658,23 +2912,64 @@ ${textContent}`;
                 if (selectedVal === 'settings_cat_gen') {
                     const cooldown = getGuildConfig(guild.id, 'cooldown') ?? 60;
                     const reqRole = getGuildConfig(guild.id, 'requiredRoleId');
+                    const premiumRole = getGuildConfig(guild.id, 'premiumRoleId');
                     const dailyLimit = getGuildConfig(guild.id, 'dailyLimit') ?? 0;
+
+                    const currentGif = getGuildConfig(guild.id, 'panelGifUrl');
 
                     const genEmbed = new EmbedBuilder()
                         .setTitle('⚡ Configuration du Générateur')
                         .setDescription([
-                            'Paramètres actuels du générateur :',
+                            'Voici les paramètres actuels du générateur :',
                             '',
-                            `⏱️ **Cooldown :** **${cooldown}s**`,
-                            `🔑 **Rôle Requis :** ${reqRole ? `<@&${reqRole}>` : '`Aucun`'}`,
-                            `📊 **Limite Daily :** ${dailyLimit > 0 ? `**${dailyLimit}** / jour` : '`Illimitée`'}`,
+                            `⏱️ **Cooldown entre 2 gens :** **${cooldown}s**`,
+                            `🔑 **Rôle Requis (Free) :** ${reqRole ? `<@&${reqRole}>` : '`Aucun`'}`,
+                            `👑 **Rôle Requis (Premium) :** ${premiumRole ? `<@&${premiumRole}>` : '`Aucun`'}`,
+                            `📊 **Limite Journalière :** ${dailyLimit > 0 ? `**${dailyLimit}** / jour` : '`Illimitée`'}`,
+                            `🖼️ **Bannière GIF :** ${currentGif ? `[Voir le GIF](${currentGif})` : '`GIF Par Défaut`'}`,
                             '',
-                            'Utilisez les boutons ci-dessous pour modifier la valeur souhaitée.'
+                            'Utilisez les menus déroulants et boutons ci-dessous pour modifier la configuration directement !'
                         ].join('\n'))
                         .setColor('#5865F2');
 
+                    const reqRoleRow = new ActionRowBuilder().addComponents(
+                        new RoleSelectMenuBuilder()
+                            .setCustomId('select_role_requis')
+                            .setPlaceholder('🔑 Choisir le rôle requis (Générateur Free)...')
+                            .setMinValues(0)
+                            .setMaxValues(1)
+                    );
+
+                    const premRoleRow = new ActionRowBuilder().addComponents(
+                        new RoleSelectMenuBuilder()
+                            .setCustomId('select_role_premium')
+                            .setPlaceholder('👑 Choisir le rôle requis (Générateur Premium)...')
+                            .setMinValues(0)
+                            .setMaxValues(1)
+                    );
+
+                    const btnRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('settings_btn_cooldown')
+                            .setLabel('⏱️ Cooldown')
+                            .setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder()
+                            .setCustomId('settings_btn_daily')
+                            .setLabel('📊 Limite Daily')
+                            .setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder()
+                            .setCustomId('settings_btn_gif')
+                            .setLabel('🖼️ Modifier GIF')
+                            .setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder()
+                            .setCustomId('settings_btn_reset')
+                            .setLabel('🔄 Réinitialiser')
+                            .setStyle(ButtonStyle.Danger)
+                    );
+
                     await interaction.reply({
                         embeds: [genEmbed],
+                        components: [reqRoleRow, premRoleRow, btnRow],
                         flags: MessageFlags.Ephemeral
                     });
                 } else if (selectedVal === 'settings_cat_logs') {
@@ -2798,11 +3093,27 @@ ${textContent}`;
                 modal.addComponents(new ActionRowBuilder().addComponents(dailyInput));
                 await interaction.showModal(modal);
             }
+            else if (customId === 'settings_btn_gif') {
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_settings_gif')
+                    .setTitle('🖼️ GIF du Générateur');
+
+                const gifInput = new TextInputBuilder()
+                    .setCustomId('gif_input')
+                    .setLabel('Lien URL de la bannière GIF/Image')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('Ex: https://i.goopics.net/mkvcwm.gif')
+                    .setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(gifInput));
+                await interaction.showModal(modal);
+            }
             else if (customId === 'settings_btn_reset') {
                 setGuildConfig(guild.id, 'cooldown', 60);
                 setGuildConfig(guild.id, 'requiredRoleId', null);
                 setGuildConfig(guild.id, 'premiumRoleId', null);
                 setGuildConfig(guild.id, 'dailyLimit', 0);
+                setGuildConfig(guild.id, 'panelGifUrl', null);
 
                 await interaction.reply({
                     content: '🔄 **Configuration réinitialisée aux valeurs par défaut !**',
