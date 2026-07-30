@@ -28,8 +28,18 @@ require('dotenv').config();
 const VERIFIED_ROLE_ID = '1532346852203040768';
 const BOOSTER_ROLE_ID = '1532347027441057812';
 
+// --- DÉTECTION ET CONFIGURATION DE L'ENVIRONNEMENT RENDER ---
 const PORT = process.env.PORT || 3000;
-const BASE_URL = process.env.RENDER_EXTERNAL_URL || process.env.CALLBACK_URL || `http://localhost:${PORT}`;
+
+let BASE_URL = `http://localhost:${PORT}`;
+if (process.env.RENDER_EXTERNAL_HOSTNAME) {
+    BASE_URL = `https://${process.env.RENDER_EXTERNAL_HOSTNAME}`;
+} else if (process.env.RENDER_EXTERNAL_URL) {
+    BASE_URL = process.env.RENDER_EXTERNAL_URL;
+} else if (process.env.CALLBACK_URL) {
+    BASE_URL = process.env.CALLBACK_URL;
+}
+
 const REDIRECT_URI = `${BASE_URL.replace(/\/$/, '')}/callback`;
 
 const client = new Client({
@@ -108,7 +118,7 @@ function popServiceStock(serviceId) {
     return account;
 }
 
-// Fonction d'envoi des logs du bot
+// Envoi des logs du bot
 async function sendLog(guild, embed) {
     if (!guild) return;
     const logChannelId = getGuildConfig(guild.id, 'logsChannelId');
@@ -155,7 +165,7 @@ async function getOrFetchEmoji(guild, service) {
     return service.defaultEmoji;
 }
 
-// Construction des ActionRows avec Stock en Temps Réel ex: Valorant (12)
+// ActionRows pour le Panel avec Stock en Temps Réel ex: Valorant (12)
 async function buildServiceRows(guild) {
     const rows = [];
     let currentRow = new ActionRowBuilder();
@@ -270,7 +280,6 @@ function getPermissionOverwrites(guild, channelName) {
     return overwrites;
 }
 
-// Fonction pour envoyer et épingler les consignes dans ✅・proof
 async function sendProofRuleBanner(channel) {
     try {
         const bannerEmbed = new EmbedBuilder()
@@ -360,9 +369,20 @@ function buildSettingsDashboard(guild) {
     return { embeds: [embed], components: [row1, row2] };
 }
 
-// --- SERVEUR CALLBACK OAUTH2 COMPATIBLE RENDER ---
+// --- SERVEUR CALLBACK OAUTH2 & HEALTHCHECK NATIVE POUR RENDER ---
 const server = http.createServer(async (req, res) => {
     const reqUrl = url.parse(req.url, true);
+
+    // Healthcheck endpoint (Permet à Render de valider le bon état du serveur)
+    if (reqUrl.pathname === '/' || reqUrl.pathname === '/healthz') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+            status: 'online',
+            service: 'NextGen Discord Bot',
+            bot: client.user ? client.user.tag : 'Connecting'
+        }));
+    }
+
     if (reqUrl.pathname === '/callback') {
         const code = reqUrl.query.code;
         if (code) {
@@ -436,8 +456,9 @@ const server = http.createServer(async (req, res) => {
     }
 });
 
-server.listen(PORT, () => {
-    console.log(`🌐 Serveur OAuth Callback actif sur ${REDIRECT_URI}`);
+// Écoute sur 0.0.0.0 (Biais nécessaire pour l'hébergement Render)
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🌐 Serveur Web & Callback Render actif sur ${REDIRECT_URI} (Port ${PORT})`);
 });
 
 // --- TRACKER D'INVITATIONS ---
