@@ -99,7 +99,7 @@ process.on('uncaughtException', (err) => {
     console.error('🛡️ Uncaught Exception (Non-Fatal) :', err?.message || err);
 });
 
-// --- GESTION DE LA CONFIGURATION PERSISTANTE (config.json & stocks.json) ---
+// --- GESTION DE LA CONFIGURATION PERSISTANTE ---
 const configPath = path.join(__dirname, 'config.json');
 
 function getConfig() {
@@ -253,7 +253,7 @@ async function sendLog(guild, embed) {
     } catch (err) {}
 }
 
-// --- CATALOGUE DES SERVICES AVEC LOGOS OFFICIELS D'ORIGINE ---
+// --- CATALOGUE DES SERVICES AVEC LOGOS OFFICIELS ---
 const services = [
     { id: 'paramount', label: 'Paramount+', emojiName: 'ng_paramount', defaultEmoji: '🎬', iconUrl: 'https://play-lh.googleusercontent.com/O5QHZxy2pkxwHrjU3Omd_1jdIYk_pZQexy2VVEDBDhaXgNhvZV7wjhfN_0kLUrQfCKFsaGbQbVm8usyrc-yBGhI', style: ButtonStyle.Secondary },
     { id: 'disney', label: 'Disney+', emojiName: 'ng_disney', defaultEmoji: '🏰', iconUrl: 'https://store-images.s-microsoft.com/image/apps.14187.14495311847124170.7646206e-bd82-4cf0-8b8c-d06a67bc302c.2e474878-acb7-4afb-a503-c2a1a32feaa8?h=210', style: ButtonStyle.Secondary },
@@ -287,7 +287,6 @@ async function getOrFetchEmoji(guild, service) {
     return service.defaultEmoji;
 }
 
-// ActionRows pour le Panel avec Stock en Temps Réel ex: Valorant (12)
 async function buildServiceRows(guild) {
     const rows = [];
     let currentRow = new ActionRowBuilder();
@@ -319,7 +318,60 @@ async function buildServiceRows(guild) {
     return rows;
 }
 
-// --- GESTION DES RÔLES DE LANGUES (Français & English) ---
+// Fonction de création des Embeds du Panel (FR ou EN)
+async function buildPanelEmbed(guild, lang = 'fr') {
+    const statsLines = [];
+    for (const service of services) {
+        const emoji = await getOrFetchEmoji(guild, service);
+        const emojiStr = (typeof emoji === 'string') ? emoji : `<:${emoji.name}:${emoji.id}>`;
+        const { rate, total } = await getTursoSuccessRate(service.id);
+        
+        if (lang === 'en') {
+            statsLines.push(`${emojiStr} **${service.label}** — \`${rate}% success\` *(${total} reviews)*`);
+        } else {
+            statsLines.push(`${emojiStr} **${service.label}** — \`${rate}% de réussite\` *(${total} avis)*`);
+        }
+    }
+
+    const newBannerUrl = 'https://i.goopics.net/mkvcwm.gif';
+    const localGifPath = 'D:/Download Twp/ff7adda344439436df0991801fb91272.gif';
+    let bannerAttachment = null;
+    let imageTarget = newBannerUrl;
+
+    if (fs.existsSync(localGifPath)) {
+        bannerAttachment = new AttachmentBuilder(localGifPath, { name: 'banner.gif' });
+        imageTarget = 'attachment://banner.gif';
+    }
+
+    const title = '✨ NextGen Generator';
+    const desc = lang === 'en' ? [
+        'Welcome to **NextGen Generator**! Click on a service button below to get your account sent directly to your Direct Messages.',
+        '',
+        '### 📊 **Service Success Rates (Turso DB):**',
+        ...statsLines,
+        '',
+        '*Please provide your feedback in DMs after generating (Working / Not Working) to update statistics live!*'
+    ].join('\n') : [
+        'Bienvenue sur le générateur **NextGen** ! Cliquez sur le bouton d\'un service ci-dessous pour obtenir vos identifiants envoyés directement en Message Privé.',
+        '',
+        '### 📊 **Taux de Réussite des Services (Turso DB) :**',
+        ...statsLines,
+        '',
+        '*N\'oubliez pas de donner votre avis en DM après chaque génération (Fonctionne / Fonctionne pas) !*'
+    ].join('\n');
+
+    const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(desc)
+        .setColor('#2B2D31')
+        .setImage(imageTarget)
+        .setFooter({ text: lang === 'en' ? 'NextGen • Instant Generation' : 'NextGen • Génération instantanée', iconURL: client.user.displayAvatarURL() })
+        .setTimestamp();
+
+    return { embed, bannerAttachment };
+}
+
+// --- RÔLES DE LANGUE ---
 async function getOrCreateLanguageRoles(guild) {
     let frRole = guild.roles.cache.find(r => r.name === '🇫🇷 Français');
     if (!frRole) {
@@ -363,20 +415,27 @@ function sendLanguageSelectionPrompt(channel) {
 const channelPermissionConfigs = {
     '✅・invites': { readOnly: true },
     '🌠・boost': { readOnly: true },
+    '🌠・boosts': { readOnly: true },
     '📢・annonce': { readOnly: true },
     '📢・announcements': { readOnly: true },
     '🎁・giveaway': { readOnly: true, allowReactions: true },
-    '🎁・giveaways-en': { readOnly: true, allowReactions: true },
+    '🎁・giveaways': { readOnly: true, allowReactions: true },
     '💧・drop': { readOnly: true },
-    '📦・restock-fr': { readOnly: true },
-    '📦・restock-en': { readOnly: true },
+    '💧・drops': { readOnly: true },
+    '📦・restock': { readOnly: true },
+    '📦・restocks': { readOnly: true },
     '✅・proof': { readOnly: false, proofRules: true },
-    '💬・general-fr': { readOnly: false },
-    '💬・general-en': { readOnly: false },
+    '✅・proofs': { readOnly: false, proofRules: true },
+    '💬・general': { readOnly: false },
+    '💬・chat': { readOnly: false },
     '📩・ticket': { readOnly: false },
+    '📩・tickets': { readOnly: false },
     '❓・req': { readOnly: false },
+    '❓・faq': { readOnly: false },
     '⭐・gen-free': { readOnly: false, allowCommands: true },
-    '🚀・gen-premium': { premiumOnly: true }
+    '⭐・free-gen': { readOnly: false, allowCommands: true },
+    '🚀・gen-premium': { premiumOnly: true },
+    '🚀・premium-gen': { premiumOnly: true }
 };
 
 function getPermissionOverwrites(guild, channelName) {
@@ -424,16 +483,25 @@ function getPermissionOverwrites(guild, channelName) {
     return overwrites;
 }
 
-async function sendProofRuleBanner(channel) {
+async function sendProofRuleBanner(channel, lang = 'fr') {
     try {
+        const isEnglish = lang === 'en' || channel.name.includes('proofs');
+        const title = isEnglish ? '📸 Proofs Channel' : '📸 Salon Preuves (Proofs)';
+        const desc = isEnglish ? [
+            'Please send your proof screenshots here!',
+            '',
+            '📌 **Rule:** Only screenshots are allowed in this channel.',
+            '❌ **No chatting:** To chat, please use the general channel. Messages without images will be deleted.'
+        ].join('\n') : [
+            'Merci d\'envoyer vos captures d\'écran de preuves ici !',
+            '',
+            '📌 **Consigne :** Seules les captures d\'écran sont autorisées dans ce salon.',
+            '❌ **Pas de bavardage :** Pour discuter, utilisez le salon général. Tout message sans image sera supprimé.'
+        ].join('\n');
+
         const bannerEmbed = new EmbedBuilder()
-            .setTitle('📸 Salon Preuves (Proofs)')
-            .setDescription([
-                'Merci d\'envoyer vos captures d\'écran de preuves ici !',
-                '',
-                '📌 **Consigne :** Seules les captures d\'écran sont autorisées dans ce salon.',
-                '❌ **Pas de bavardage :** Pour discuter, utilisez le salon général. Tout message sans image sera supprimé.'
-            ].join('\n'))
+            .setTitle(title)
+            .setDescription(desc)
             .setColor('#57F287')
             .setTimestamp();
 
@@ -732,19 +800,34 @@ async function cacheGuildInvites(guild) {
 const userCooldowns = new Map();
 const userDailyGens = new Map();
 
-// --- ENREGISTREMENT DES COMMANDES SLASH ---
+// --- ENREGISTREMENT DES COMMANDES SLASH AVEC OPTIONS LANGUE ET SALON CIBLÉS ---
 async function registerCommands() {
     const commands = [
         new SlashCommandBuilder()
             .setName('panel')
-            .setDescription('Affiche le panel de génération NextGen'),
+            .setDescription('Affiche le panel de génération NextGen')
+            .addStringOption(option =>
+                option.setName('langue')
+                    .setDescription('Langue du panel (fr / en)')
+                    .setRequired(false)
+                    .addChoices(
+                        { name: 'Français 🇫🇷', value: 'fr' },
+                        { name: 'English 🇬🇧', value: 'en' }
+                    )
+            )
+            .addChannelOption(option =>
+                option.setName('salon')
+                    .setDescription('Salon d\'envoi (optionnel)')
+                    .addChannelTypes(ChannelType.GuildText)
+                    .setRequired(false)
+            ),
         new SlashCommandBuilder()
             .setName('settings')
             .setDescription('Ouvre le panneau de configuration interactif (style DraftBot)')
             .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
         new SlashCommandBuilder()
             .setName('en-fr')
-            .setDescription('Crée l\'arborescence bilingue (Français & English) du serveur')
+            .setDescription('Purge le serveur et déploie l\'arborescence bilingue 1:1 sans suffixe')
             .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
         new SlashCommandBuilder()
             .setName('broadcast')
@@ -770,18 +853,78 @@ async function registerCommands() {
             .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
         new SlashCommandBuilder()
             .setName('ticket-panel')
-            .setDescription('Déploie le panel de création de tickets'),
+            .setDescription('Déploie le panel de création de tickets')
+            .addStringOption(option =>
+                option.setName('langue')
+                    .setDescription('Langue du panel (fr / en)')
+                    .setRequired(false)
+                    .addChoices(
+                        { name: 'Français 🇫🇷', value: 'fr' },
+                        { name: 'English 🇬🇧', value: 'en' }
+                    )
+            )
+            .addChannelOption(option =>
+                option.setName('salon')
+                    .setDescription('Salon d\'envoi (optionnel)')
+                    .addChannelTypes(ChannelType.GuildText)
+                    .setRequired(false)
+            ),
         new SlashCommandBuilder()
             .setName('proof-rules')
             .setDescription('Déploie et épingle les consignes du salon proof')
+            .addStringOption(option =>
+                option.setName('langue')
+                    .setDescription('Langue des consignes (fr / en)')
+                    .setRequired(false)
+                    .addChoices(
+                        { name: 'Français 🇫🇷', value: 'fr' },
+                        { name: 'English 🇬🇧', value: 'en' }
+                    )
+            )
+            .addChannelOption(option =>
+                option.setName('salon')
+                    .setDescription('Salon d\'envoi (optionnel)')
+                    .addChannelTypes(ChannelType.GuildText)
+                    .setRequired(false)
+            )
             .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
         new SlashCommandBuilder()
             .setName('faq-panel')
             .setDescription('Déploie le panneau de la Foire Aux Questions (FAQ)')
+            .addStringOption(option =>
+                option.setName('langue')
+                    .setDescription('Langue de la FAQ (fr / en)')
+                    .setRequired(false)
+                    .addChoices(
+                        { name: 'Français 🇫🇷', value: 'fr' },
+                        { name: 'English 🇬🇧', value: 'en' }
+                    )
+            )
+            .addChannelOption(option =>
+                option.setName('salon')
+                    .setDescription('Salon d\'envoi (optionnel)')
+                    .addChannelTypes(ChannelType.GuildText)
+                    .setRequired(false)
+            )
             .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
         new SlashCommandBuilder()
             .setName('verify')
-            .setDescription('Déploie le message de vérification du serveur'),
+            .setDescription('Déploie le message de vérification du serveur')
+            .addStringOption(option =>
+                option.setName('langue')
+                    .setDescription('Langue du panneau (fr / en)')
+                    .setRequired(false)
+                    .addChoices(
+                        { name: 'Français 🇫🇷', value: 'fr' },
+                        { name: 'English 🇬🇧', value: 'en' }
+                    )
+            )
+            .addChannelOption(option =>
+                option.setName('salon')
+                    .setDescription('Salon d\'envoi (optionnel)')
+                    .addChannelTypes(ChannelType.GuildText)
+                    .setRequired(false)
+            ),
         new SlashCommandBuilder()
             .setName('logs')
             .setDescription('Définit le salon de logs pour le bot')
@@ -1076,7 +1219,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // --- COMMANDE /en-fr (SETUP BILINGUE ULTRA STRICT) ---
+            // --- COMMANDE /en-fr ---
             else if (commandName === 'en-fr') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -1084,130 +1227,212 @@ client.on('interactionCreate', async (interaction) => {
                 const everyoneRole = guild.roles.everyone;
                 const { frRole, enRole } = await getOrCreateLanguageRoles(guild);
 
+                // 1. SUPPRESSION DE TOUS LES SALONS ET CATÉGORIES EXISTANTS
+                const existingChannels = await guild.channels.fetch();
+                for (const [id, ch] of existingChannels) {
+                    if (ch) {
+                        await ch.delete().catch(() => {});
+                    }
+                }
+
+                // 2. CRÉATION DU SALON DE VÉRIFICATION UNIFIÉ
+                const verifyChannel = await guild.channels.create({
+                    name: '🛡️・verify',
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        {
+                            id: everyoneRole.id,
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                            deny: [PermissionFlagsBits.SendMessages]
+                        }
+                    ]
+                });
+
+                const oauthUrl = `https://discord.com/oauth2/authorize?client_id=${process.env.CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=guilds.join+identify`;
+
+                const verifyEmbed = new EmbedBuilder()
+                    .setTitle('🛡️ Verification / Vérification')
+                    .setDescription([
+                        'Bienvenue sur le serveur ! Pour accéder aux salons et aux générateurs, merci de vous vérifier ci-dessous.',
+                        'Welcome! Please verify below to access channels and generators.',
+                        '',
+                        '1. Cliquez sur le bouton **Se Vérifier / Verify** ci-dessous.',
+                        '2. Acceptez l\'autorisation.',
+                        '3. Vos salons se débloqueront automatiquement !'
+                    ].join('\n'))
+                    .setColor('#57F287')
+                    .setTimestamp();
+
+                const verifyRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setLabel('🛡️ Se Vérifier / Verify')
+                        .setStyle(ButtonStyle.Link)
+                        .setURL(oauthUrl)
+                );
+
+                await verifyChannel.send({ embeds: [verifyEmbed], components: [verifyRow] });
+                const langPrompt = sendLanguageSelectionPrompt(verifyChannel);
+                await verifyChannel.send(langPrompt);
+
                 const createdSummary = [];
 
-                // 1. Catégorie & Salons Globaux (Vérifiés uniquement)
-                const commonCat = await guild.channels.create({
-                    name: '🌐 COMMON / GENERAL',
-                    type: ChannelType.GuildCategory,
-                    permissionOverwrites: [
-                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
-                        { id: VERIFIED_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel] }
-                    ]
-                });
-
-                const commonChannels = [
-                    '✅・invites',
-                    '🌠・boost',
-                    '✅・proof',
-                    '📩・ticket'
-                ];
-
-                const createdCommon = [];
-                for (const chName of commonChannels) {
-                    const overwrites = getPermissionOverwrites(guild, chName);
-                    const textCh = await guild.channels.create({
-                        name: chName,
-                        type: ChannelType.GuildText,
-                        parent: commonCat.id,
-                        permissionOverwrites: overwrites
-                    });
-                    if (chName === '✅・proof') {
-                        await sendProofRuleBanner(textCh);
+                // 3. SECTEUR FRANÇAIS
+                const frStructure = [
+                    {
+                        category: 'main',
+                        channels: [
+                            '✅・invites',
+                            '🌠・boost',
+                            '📢・annonce',
+                            '🎁・giveaway',
+                            '📩・ticket',
+                            '💬・general',
+                            '💧・drop'
+                        ]
+                    },
+                    {
+                        category: 'GENERATOR',
+                        channels: [
+                            '❓・req',
+                            '⭐・gen-free',
+                            '🚀・gen-premium',
+                            '📦・restock',
+                            '✅・proof'
+                        ]
                     }
-                    createdCommon.push(`- <#${textCh.id}>`);
-                }
-                createdSummary.push(`📁 **Catégorie : 🌐 COMMON / GENERAL**\n${createdCommon.join('\n')}`);
-
-                // 2. Catégorie 🇫🇷 FRANÇAIS (Rôle FR uniquement)
-                const frCat = await guild.channels.create({
-                    name: '🇫🇷 FRANÇAIS',
-                    type: ChannelType.GuildCategory,
-                    permissionOverwrites: [
-                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
-                        { id: VERIFIED_ROLE_ID, deny: [PermissionFlagsBits.ViewChannel] },
-                        { id: frRole ? frRole.id : everyoneRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }
-                    ]
-                });
-
-                const frChannelsData = [
-                    { name: '📢・annonces', readOnly: true },
-                    { name: '🎁・giveaways-fr', readOnly: true },
-                    { name: '💬・general-fr', readOnly: false },
-                    { name: '⭐・gen-fr', readOnly: false },
-                    { name: '📦・restock-fr', readOnly: true }
                 ];
 
-                const createdFr = [];
-                for (const chData of frChannelsData) {
-                    const overwrites = [
-                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
-                        {
+                let frGenChannel = null;
+
+                for (const catData of frStructure) {
+                    const categoryChannel = await guild.channels.create({
+                        name: catData.category,
+                        type: ChannelType.GuildCategory,
+                        permissionOverwrites: [
+                            { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
+                            { id: VERIFIED_ROLE_ID, deny: [PermissionFlagsBits.ViewChannel] },
+                            { id: frRole ? frRole.id : everyoneRole.id, allow: [PermissionFlagsBits.ViewChannel] }
+                        ]
+                    });
+
+                    const createdChannels = [];
+                    for (const chName of catData.channels) {
+                        const overwrites = getPermissionOverwrites(guild, chName);
+                        overwrites.push({
                             id: frRole ? frRole.id : everyoneRole.id,
-                            allow: chData.readOnly 
-                                ? [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] 
-                                : [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.UseApplicationCommands],
-                            deny: chData.readOnly ? [PermissionFlagsBits.SendMessages] : []
+                            allow: [PermissionFlagsBits.ViewChannel]
+                        });
+
+                        const textChannel = await guild.channels.create({
+                            name: chName,
+                            type: ChannelType.GuildText,
+                            parent: categoryChannel.id,
+                            permissionOverwrites: overwrites
+                        });
+
+                        if (chName === '✅・proof') {
+                            await sendProofRuleBanner(textChannel, 'fr');
+                        } else if (chName === '⭐・gen-free') {
+                            frGenChannel = textChannel;
                         }
-                    ];
-                    const textCh = await guild.channels.create({
-                        name: chData.name,
-                        type: ChannelType.GuildText,
-                        parent: frCat.id,
-                        permissionOverwrites: overwrites
-                    });
-                    createdFr.push(`- <#${textCh.id}> ${chData.readOnly ? '🔒 *(Lecture seule)*' : '💬 *(Public)*'}`);
+
+                        createdChannels.push(`- <#${textChannel.id}>`);
+                    }
+
+                    createdSummary.push(`📁 **Catégorie FR : ${catData.category}**\n${createdChannels.join('\n')}`);
                 }
-                createdSummary.push(`📁 **Catégorie : 🇫🇷 FRANÇAIS**\n${createdFr.join('\n')}`);
 
-                // 3. Catégorie 🇬🇧 ENGLISH (Rôle EN uniquement)
-                const enCat = await guild.channels.create({
-                    name: '🇬🇧 ENGLISH',
-                    type: ChannelType.GuildCategory,
-                    permissionOverwrites: [
-                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
-                        { id: VERIFIED_ROLE_ID, deny: [PermissionFlagsBits.ViewChannel] },
-                        { id: enRole ? enRole.id : everyoneRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }
-                    ]
-                });
-
-                const enChannelsData = [
-                    { name: '📢・announcements', readOnly: true },
-                    { name: '🎁・giveaways-en', readOnly: true },
-                    { name: '💬・general-en', readOnly: false },
-                    { name: '⭐・gen-en', readOnly: false },
-                    { name: '📦・restock-en', readOnly: true }
+                // 4. SECTEUR ANGLAIS (Noms en Anglais pur)
+                const enStructure = [
+                    {
+                        category: 'Main',
+                        channels: [
+                            '✅・invites',
+                            '🌠・boosts',
+                            '📢・announcements',
+                            '🎁・giveaways',
+                            '📩・tickets',
+                            '💬・chat',
+                            '💧・drops'
+                        ]
+                    },
+                    {
+                        category: 'Generator',
+                        channels: [
+                            '❓・faq',
+                            '⭐・free-gen',
+                            '🚀・premium-gen',
+                            '📦・restocks',
+                            '✅・proofs'
+                        ]
+                    }
                 ];
 
-                const createdEn = [];
-                for (const chData of enChannelsData) {
-                    const overwrites = [
-                        { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
-                        {
-                            id: enRole ? enRole.id : everyoneRole.id,
-                            allow: chData.readOnly 
-                                ? [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] 
-                                : [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.UseApplicationCommands],
-                            deny: chData.readOnly ? [PermissionFlagsBits.SendMessages] : []
-                        }
-                    ];
-                    const textCh = await guild.channels.create({
-                        name: chData.name,
-                        type: ChannelType.GuildText,
-                        parent: enCat.id,
-                        permissionOverwrites: overwrites
+                let enGenChannel = null;
+
+                for (const catData of enStructure) {
+                    const categoryChannel = await guild.channels.create({
+                        name: catData.category,
+                        type: ChannelType.GuildCategory,
+                        permissionOverwrites: [
+                            { id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },
+                            { id: VERIFIED_ROLE_ID, deny: [PermissionFlagsBits.ViewChannel] },
+                            { id: enRole ? enRole.id : everyoneRole.id, allow: [PermissionFlagsBits.ViewChannel] }
+                        ]
                     });
-                    createdEn.push(`- <#${textCh.id}> ${chData.readOnly ? '🔒 *(Read Only)*' : '💬 *(Public)*'}`);
+
+                    const createdChannels = [];
+                    for (const chName of catData.channels) {
+                        const overwrites = getPermissionOverwrites(guild, chName);
+                        overwrites.push({
+                            id: enRole ? enRole.id : everyoneRole.id,
+                            allow: [PermissionFlagsBits.ViewChannel]
+                        });
+
+                        const textChannel = await guild.channels.create({
+                            name: chName,
+                            type: ChannelType.GuildText,
+                            parent: categoryChannel.id,
+                            permissionOverwrites: overwrites
+                        });
+
+                        if (chName === '✅・proofs') {
+                            await sendProofRuleBanner(textChannel, 'en');
+                        } else if (chName === '⭐・free-gen') {
+                            enGenChannel = textChannel;
+                        }
+
+                        createdChannels.push(`- <#${textChannel.id}>`);
+                    }
+
+                    createdSummary.push(`📁 **Category EN : ${catData.category}**\n${createdChannels.join('\n')}`);
                 }
-                createdSummary.push(`📁 **Catégorie : 🇬🇧 ENGLISH**\n${createdEn.join('\n')}`);
+
+                // DEPLOIEMENT AUTOMATIQUE DES 2 PANELS DE GENERATION TRADUITS
+                const components = await buildServiceRows(guild);
+
+                if (frGenChannel) {
+                    const frData = await buildPanelEmbed(guild, 'fr');
+                    const payloadFr = { embeds: [frData.embed], components: components };
+                    if (frData.bannerAttachment) payloadFr.files = [frData.bannerAttachment];
+                    await frGenChannel.send(payloadFr);
+                }
+
+                if (enGenChannel) {
+                    const enData = await buildPanelEmbed(guild, 'en');
+                    const payloadEn = { embeds: [enData.embed], components: components };
+                    if (enData.bannerAttachment) payloadEn.files = [enData.bannerAttachment];
+                    await enGenChannel.send(payloadEn);
+                }
 
                 const setupEmbed = new EmbedBuilder()
-                    .setTitle('🛡️ Arborescence Bilingue & Permissions Déployées !')
+                    .setTitle('🧹 Anciens Salons Supprimés & Serveur Bilingue 1:1 Déployé !')
                     .setDescription([
-                        'Les permissions ont été ajustées de manière ultra stricte :',
-                        '🔒 **Non Vérifiés :** Ne voient **ABSOLUMENT RIEN** d\'autre que le salon <#verify>.',
-                        '🇫🇷 **Membres Français :** Voient la catégorie 🌐 COMMON et 🇫🇷 FRANÇAIS.',
-                        '🇬🇧 **English Members:** See 🌐 COMMON & 🇬🇧 ENGLISH categories.',
+                        'Le serveur a été entièrement réinitialisé et recréé de zéro :',
+                        '',
+                        `🛡️ **Vérification :** <#${verifyChannel.id}>`,
+                        '🇫🇷 **Secteur Français :** Titres originaux en Français (Rôle `🇫🇷 Français`)',
+                        '🇬🇧 **English Sector:** Clean English names (Role `🇬🇧 English`)',
                         '',
                         createdSummary.join('\n\n')
                     ].join('\n'))
@@ -1217,7 +1442,7 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.editReply({ embeds: [setupEmbed] });
             }
 
-            // --- COMMANDE /broadcast (DIFFUSION BILINGUE DE MESSAGE) ---
+            // --- COMMANDE /broadcast ---
             else if (commandName === 'broadcast') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -1225,12 +1450,12 @@ client.on('interactionCreate', async (interaction) => {
                 let msgEn = interaction.options.getString('message_en');
 
                 if (!msgEn) {
-                    msgEn = msgFr; // Fallback si non renseigné
+                    msgEn = msgFr;
                 }
 
                 const guild = interaction.guild;
-                const frCh = guild.channels.cache.find(c => c.name.includes('annonces') || c.name.includes('annonce'));
-                const enCh = guild.channels.cache.find(c => c.name.includes('announcements') || c.name.includes('announcement'));
+                const frCh = guild.channels.cache.find(c => c.name === '📢・annonce' || c.name.includes('annonce'));
+                const enCh = guild.channels.cache.find(c => c.name === '📢・announcements' || c.name.includes('announcement'));
 
                 let frSent = false;
                 let enSent = false;
@@ -1262,18 +1487,20 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
+            // --- COMMANDE /proof-rules (AVEC OPTION DE LANGUE ET SALON CIBLÉ) ---
             else if (commandName === 'proof-rules') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const guild = interaction.guild;
-                let proofChannel = guild.channels.cache.find(c => c.name.includes('proof'));
-                if (!proofChannel) proofChannel = interaction.channel;
+                const targetChannel = interaction.options.getChannel('salon') || guild.channels.cache.find(c => c.name.includes('proof')) || interaction.channel;
+                const langOpt = interaction.options.getString('langue');
+                const lang = langOpt || (targetChannel.name.includes('proofs') || targetChannel.name.includes('en') ? 'en' : 'fr');
 
-                const pinnedMsg = await sendProofRuleBanner(proofChannel);
+                const pinnedMsg = await sendProofRuleBanner(targetChannel, lang);
 
                 if (pinnedMsg) {
                     await interaction.editReply({
-                        content: `✅ Les consignes du salon proof ont été déployées et épinglées dans <#${proofChannel.id}>.`
+                        content: `✅ Les consignes du salon proof (${lang.toUpperCase()}) ont été déployées et épinglées dans <#${targetChannel.id}>.`
                     });
                 } else {
                     await interaction.editReply({
@@ -1282,89 +1509,183 @@ client.on('interactionCreate', async (interaction) => {
                 }
             }
 
+            // --- COMMANDE /faq-panel (AVEC OPTION DE LANGUE ET SALON CIBLÉ) ---
             else if (commandName === 'faq-panel') {
                 await interaction.deferReply();
 
                 const guild = interaction.guild;
-                let faqChannel = guild.channels.cache.find(c => c.name.includes('faq') || c.name.includes('req'));
-                if (!faqChannel) faqChannel = interaction.channel;
+                const targetChannel = interaction.options.getChannel('salon') || guild.channels.cache.find(c => c.name.includes('faq') || c.name.includes('req')) || interaction.channel;
+                const langOpt = interaction.options.getString('langue');
+                const lang = langOpt || (targetChannel.name.includes('faq') || targetChannel.name.includes('en') ? 'en' : 'fr');
+
+                const faqTitle = lang === 'en' ? '❓ NextGen • Frequently Asked Questions (FAQ)' : '❓ NextGen • Foire Aux Questions (FAQ)';
+                const faqDesc = lang === 'en' ? [
+                    'Welcome to the **NextGen** FAQ! Find answers to the most common questions below:',
+                    '',
+                    '### ⚡ **How to generate an account?**',
+                    'Go to the generator channel `/panel`, then click the button for your desired service. Your credentials will be sent immediately to your **Direct Messages (DM)**.',
+                    '',
+                    '### 🛡️ **How to unlock server channels?**',
+                    'You must complete the verification in <#verify> and choose your language. All channels will unlock automatically.',
+                    '',
+                    '### 📦 **When do account restocks happen?**',
+                    'Restocks are announced in real-time in the `#restocks` channel. Keep an eye out for notifications!',
+                    '',
+                    '### ⏱️ **Why does the bot ask me to wait?**',
+                    'A cooldown timer is set between generations to ensure fair distribution for all members.',
+                    '',
+                    '### 📩 **How to contact the moderation team?**',
+                    'Open a private support ticket by going to the `#tickets` channel.'
+                ].join('\n') : [
+                    'Bienvenue dans la FAQ du serveur **NextGen** ! Retrouvez ci-dessous les réponses aux questions les plus fréquentes :',
+                    '',
+                    '### ⚡ **Comment générer un compte ?**',
+                    'Rendez-vous dans le salon du générateur `/panel`, puis cliquez sur le bouton du service de votre choix. Vos identifiants vous seront immédiatement envoyés en **Message Privé (DM)**.',
+                    '',
+                    '### 🛡️ **Comment débloquer les salons du serveur ?**',
+                    'Vous devez effectuer la vérification dans le salon <#verify>. Une fois vérifié, tous les salons se débloqueront automatiquement.',
+                    '',
+                    '### 📦 **Quand ont lieu les restocks de comptes ?**',
+                    'Les restocks sont annoncés en temps réel dans le salon <#restock>. Soyez attentifs aux notifications !',
+                    '',
+                    '### ⏱️ **Pourquoi le bot me demande de patienter ?**',
+                    'Un temps d\'attente (cooldown) est configuré entre deux générations pour garantir un accès équitable à tous les membres.',
+                    '',
+                    '### 📩 **Comment contacter l\'équipe de modération ?**',
+                    'Ouvrez un ticket privé en vous rendant dans le salon <#ticket>.'
+                ].join('\n');
 
                 const faqEmbed = new EmbedBuilder()
-                    .setTitle('❓ NextGen • Foire Aux Questions (FAQ)')
-                    .setDescription([
-                        'Bienvenue dans la FAQ du serveur **NextGen** ! Retrouvez ci-dessous les réponses aux questions les plus fréquentes :',
-                        '',
-                        '### ⚡ **Comment générer un compte ?**',
-                        'Rendez-vous dans le salon du générateur `/panel`, puis cliquez sur le bouton du service de votre choix. Vos identifiants vous seront immédiatement envoyés en **Message Privé (DM)**.',
-                        '',
-                        '### 🛡️ **Comment débloquer les salons du serveur ?**',
-                        'Vous devez effectuer la vérification dans le salon <#verify>. Une fois vérifié, tous les salons se débloqueront automatiquement.',
-                        '',
-                        '### 📦 **Quand ont lieu les restocks de comptes ?**',
-                        'Les restocks sont annoncés en temps réel dans le salon <#restock>. Soyez attentifs aux notifications !',
-                        '',
-                        '### ⏱️ **Pourquoi le bot me demande de patienter ?**',
-                        'Un temps d\'attente (cooldown) est configuré entre deux générations pour garantir un accès équitable à tous les membres.',
-                        '',
-                        '### 📩 **Comment contacter l\'équipe de modération ?**',
-                        'Ouvrez un ticket privé en vous rendant dans le salon <#ticket>.'
-                    ].join('\n'))
+                    .setTitle(faqTitle)
+                    .setDescription(faqDesc)
                     .setColor('#5865F2')
                     .setThumbnail(guild.iconURL() || client.user.displayAvatarURL())
-                    .setFooter({ text: 'NextGen FAQ System', iconURL: client.user.displayAvatarURL() })
+                    .setFooter({ text: lang === 'en' ? 'NextGen FAQ System' : 'NextGen FAQ System', iconURL: client.user.displayAvatarURL() })
                     .setTimestamp();
 
-                await faqChannel.send({ embeds: [faqEmbed] });
+                await targetChannel.send({ embeds: [faqEmbed] });
 
                 await interaction.editReply({
-                    content: `✅ Le panneau FAQ a été publié dans <#${faqChannel.id}>.`
+                    content: `✅ Le panneau FAQ (${lang.toUpperCase()}) a été publié dans <#${targetChannel.id}>.`
                 });
             }
 
+            // --- COMMANDE /ticket-panel (AVEC OPTION DE LANGUE ET SALON CIBLÉ) ---
+            else if (commandName === 'ticket-panel') {
+                await interaction.deferReply();
+
+                const targetChannel = interaction.options.getChannel('salon') || interaction.channel;
+                const langOpt = interaction.options.getString('langue');
+                const lang = langOpt || (targetChannel.name.includes('ticket-en') || targetChannel.name.includes('tickets') ? 'en' : 'fr');
+
+                const ticketTitle = lang === 'en' ? '📩 NextGen Support' : '📩 Support NextGen';
+                const ticketDesc = lang === 'en' ? [
+                    'Need help or have a question?',
+                    '',
+                    'Click the button below to open a private support ticket with our moderation team.'
+                ].join('\n') : [
+                    'Besoin d\'aide ou une question ?',
+                    '',
+                    'Cliquez sur le bouton ci-dessous pour ouvrir un ticket privé avec l\'équipe de modération.'
+                ].join('\n');
+
+                const ticketEmbed = new EmbedBuilder()
+                    .setTitle(ticketTitle)
+                    .setDescription(ticketDesc)
+                    .setColor('#5865F2')
+                    .setTimestamp();
+
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('ticket_open')
+                        .setLabel(lang === 'en' ? '📩 Open a Ticket' : '📩 Ouvrir un Ticket')
+                        .setStyle(ButtonStyle.Primary)
+                );
+
+                await targetChannel.send({
+                    embeds: [ticketEmbed],
+                    components: [row]
+                });
+
+                await interaction.editReply({
+                    content: `✅ Le panneau de tickets (${lang.toUpperCase()}) a été publié dans <#${targetChannel.id}>.`
+                });
+            }
+
+            // --- COMMANDE /verify (AVEC OPTION DE LANGUE ET SALON CIBLÉ) ---
+            else if (commandName === 'verify') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                const guild = interaction.guild;
+                const targetChannel = interaction.options.getChannel('salon') || guild.channels.cache.find(c => c.name.includes('verify')) || interaction.channel;
+                const langOpt = interaction.options.getString('langue');
+                const lang = langOpt || 'fr';
+
+                const oauthUrl = `https://discord.com/oauth2/authorize?client_id=${process.env.CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=guilds.join+identify`;
+
+                const verifyTitle = lang === 'en' ? '🛡️ Server Verification' : '🛡️ Vérification du Serveur';
+                const verifyDesc = lang === 'en' ? [
+                    'Welcome to the server! Please verify below to access channels and generators.',
+                    '',
+                    '1. Click the **Verify** button below.',
+                    '2. Accept the authorization.',
+                    '3. Your server access will unlock automatically!'
+                ].join('\n') : [
+                    'Bienvenue sur le serveur ! Pour accéder aux salons et aux générateurs, merci de vous vérifier ci-dessous.',
+                    '',
+                    '1. Cliquez sur le bouton **Se Vérifier** ci-dessous.',
+                    '2. Acceptez l\'autorisation.',
+                    '3. Vos salons se débloqueront automatiquement !'
+                ].join('\n');
+
+                const verifyEmbed = new EmbedBuilder()
+                    .setTitle(verifyTitle)
+                    .setDescription(verifyDesc)
+                    .setColor('#57F287')
+                    .setTimestamp();
+
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setLabel(lang === 'en' ? '🛡️ Verify' : '🛡️ Se Vérifier')
+                        .setStyle(ButtonStyle.Link)
+                        .setURL(oauthUrl)
+                );
+
+                await targetChannel.send({
+                    embeds: [verifyEmbed],
+                    components: [row]
+                });
+
+                const langPrompt = sendLanguageSelectionPrompt(targetChannel);
+                await targetChannel.send(langPrompt);
+
+                await interaction.editReply({
+                    content: `✅ Panneau de vérification (${lang.toUpperCase()}) déployé dans <#${targetChannel.id}>.`
+                });
+            }
+
+            // --- COMMANDE /panel (AVEC OPTION DE LANGUE ET SALON CIBLÉ) ---
             else if (commandName === 'panel') {
                 await interaction.deferReply();
 
-                const statsLines = [];
-                for (const service of services) {
-                    const emoji = await getOrFetchEmoji(interaction.guild, service);
-                    const emojiStr = (typeof emoji === 'string') ? emoji : `<:${emoji.name}:${emoji.id}>`;
-                    const { rate, total } = await getTursoSuccessRate(service.id);
-                    statsLines.push(`${emojiStr} **${service.label}** — \`${rate}% de réussite\` *(${total} avis)*`);
-                }
+                const targetChannel = interaction.options.getChannel('salon') || interaction.channel;
+                const langOpt = interaction.options.getString('langue');
+                const isEnglishChannel = targetChannel.name.includes('en') || targetChannel.name.includes('chat') || targetChannel.name.includes('free-gen') || targetChannel.name.includes('announcement');
+                const lang = langOpt || (isEnglishChannel ? 'en' : 'fr');
 
-                const newBannerUrl = 'https://i.goopics.net/mkvcwm.gif';
-                const localGifPath = 'D:/Download Twp/ff7adda344439436df0991801fb91272.gif';
-                let bannerAttachment = null;
-                let imageTarget = newBannerUrl;
-
-                if (fs.existsSync(localGifPath)) {
-                    bannerAttachment = new AttachmentBuilder(localGifPath, { name: 'banner.gif' });
-                    imageTarget = 'attachment://banner.gif';
-                }
-
-                const panelEmbed = new EmbedBuilder()
-                    .setTitle('✨ NextGen Generator')
-                    .setDescription([
-                        'Bienvenue sur le générateur **NextGen** ! Cliquez sur le bouton d\'un service ci-dessous pour obtenir vos identifiants envoyés directement en Message Privé.',
-                        '',
-                        '### 📊 **Taux de Réussite des Services (Turso DB) :**',
-                        ...statsLines,
-                        '',
-                        '*N\'oubliez pas de donner votre avis en DM après chaque génération (Fonctionne / Fonctionne pas) !*'
-                    ].join('\n'))
-                    .setColor('#2B2D31')
-                    .setImage(imageTarget)
-                    .setFooter({ text: 'NextGen • Génération instantanée', iconURL: client.user.displayAvatarURL() })
-                    .setTimestamp();
-
+                const panelData = await buildPanelEmbed(interaction.guild, lang);
                 const components = await buildServiceRows(interaction.guild);
-                const replyPayload = { embeds: [panelEmbed], components: components };
 
-                if (bannerAttachment) {
-                    replyPayload.files = [bannerAttachment];
+                const replyPayload = { embeds: [panelData.embed], components: components };
+                if (panelData.bannerAttachment) {
+                    replyPayload.files = [panelData.bannerAttachment];
                 }
 
-                await interaction.editReply(replyPayload);
+                await targetChannel.send(replyPayload);
+
+                await interaction.editReply({
+                    content: `✅ Panel du générateur (${lang.toUpperCase()}) envoyé dans <#${targetChannel.id}>.`
+                });
             }
 
             else if (commandName === 'settings-gen') {
@@ -1406,7 +1727,6 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
-            // --- COMMANDE /giveaway (GIVEAWAY SIMULTANÉ BILINGUE AVEC PARTICIPATION UNIFIÉE) ---
             else if (commandName === 'giveaway') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -1422,8 +1742,8 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 const guild = interaction.guild;
-                let frGwChannel = guild.channels.cache.find(c => c.name.includes('giveaway') && !c.name.includes('en'));
-                let enGwChannel = guild.channels.cache.find(c => c.name.includes('giveaways-en') || c.name.includes('giveaway-en'));
+                let frGwChannel = guild.channels.cache.find(c => c.name === '🎁・giveaway' || c.name.includes('giveaway-fr'));
+                let enGwChannel = guild.channels.cache.find(c => c.name === '🎁・giveaways' || c.name.includes('giveaway-en'));
 
                 if (!frGwChannel) frGwChannel = interaction.channel;
 
@@ -1431,7 +1751,7 @@ client.on('interactionCreate', async (interaction) => {
                 const gwId = `gw_${Date.now()}`;
 
                 const gwEmbedFr = new EmbedBuilder()
-                    .setTitle('🎉 Giveaway NextGen (FR)')
+                    .setTitle('🎉 Giveaway NextGen')
                     .setDescription([
                         `Un nouveau giveaway vient d'être lancé !`,
                         '',
@@ -1458,7 +1778,7 @@ client.on('interactionCreate', async (interaction) => {
                 let enMsg = null;
                 if (enGwChannel && enGwChannel.isTextBased()) {
                     const gwEmbedEn = new EmbedBuilder()
-                        .setTitle('🎉 NextGen Giveaway (EN)')
+                        .setTitle('🎉 NextGen Giveaway')
                         .setDescription([
                             `A new giveaway has just started!`,
                             '',
@@ -1606,7 +1926,6 @@ client.on('interactionCreate', async (interaction) => {
                 await sendLog(guild, logEmbed);
             }
 
-            // --- COMMANDE /restock (MULTILINGUE FR ET EN) ---
             else if (commandName === 'restock') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -1637,8 +1956,8 @@ client.on('interactionCreate', async (interaction) => {
                     const totalStockCount = await getTursoStockCount(serviceId);
 
                     const guild = interaction.guild;
-                    let frRestockCh = guild.channels.cache.find(c => c.name.includes('restock-fr') || c.name.includes('restock'));
-                    let enRestockCh = guild.channels.cache.find(c => c.name.includes('restock-en'));
+                    let frRestockCh = guild.channels.cache.find(c => c.name === '📦・restock' || c.name.includes('restock-fr'));
+                    let enRestockCh = guild.channels.cache.find(c => c.name === '📦・restocks' || c.name.includes('restock-en'));
 
                     if (!frRestockCh) frRestockCh = interaction.channel;
 
@@ -1695,112 +2014,6 @@ client.on('interactionCreate', async (interaction) => {
                         content: '❌ Erreur lors de la lecture du fichier.'
                     });
                 }
-            }
-
-            else if (commandName === 'ticket-panel') {
-                await interaction.deferReply();
-
-                const ticketEmbed = new EmbedBuilder()
-                    .setTitle('📩 Support NextGen')
-                    .setDescription([
-                        'Besoin d\'aide ou une question ?',
-                        '',
-                        'Cliquez sur le bouton ci-dessous pour ouvrir un ticket privé avec l\'équipe de modération.'
-                    ].join('\n'))
-                    .setColor('#5865F2')
-                    .setTimestamp();
-
-                const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('ticket_open')
-                        .setLabel('📩 Ouvrir un Ticket')
-                        .setStyle(ButtonStyle.Primary)
-                );
-
-                await interaction.editReply({
-                    embeds: [ticketEmbed],
-                    components: [row]
-                });
-            }
-
-            else if (commandName === 'verify') {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-                const guild = interaction.guild;
-                let verifyChannel = guild.channels.cache.find(c => c.name.includes('verify'));
-
-                if (!verifyChannel) {
-                    verifyChannel = await guild.channels.create({
-                        name: '🛡️・verify',
-                        type: ChannelType.GuildText,
-                        permissionOverwrites: [
-                            {
-                                id: guild.roles.everyone.id,
-                                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
-                                deny: [PermissionFlagsBits.SendMessages]
-                            }
-                        ]
-                    });
-                }
-
-                const oauthUrl = `https://discord.com/oauth2/authorize?client_id=${process.env.CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=guilds.join+identify`;
-
-                const verifyEmbed = new EmbedBuilder()
-                    .setTitle('🛡️ Vérification / Verification')
-                    .setDescription([
-                        'Bienvenue sur le serveur ! Pour accéder aux salons et aux générateurs, merci de vous vérifier ci-dessous.',
-                        'Welcome! Please verify below to access channels and generators.',
-                        '',
-                        '1. Cliquez sur le bouton **Se Vérifier / Verify** ci-dessous.',
-                        '2. Acceptez l\'autorisation.',
-                        '3. Vos salons se débloqueront automatiquement !'
-                    ].join('\n'))
-                    .setColor('#57F287')
-                    .setTimestamp();
-
-                const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setLabel('🛡️ Se Vérifier / Verify')
-                        .setStyle(ButtonStyle.Link)
-                        .setURL(oauthUrl)
-                );
-
-                await verifyChannel.send({
-                    embeds: [verifyEmbed],
-                    components: [row]
-                });
-
-                // Envoi du prompt de choix de langue
-                const langPrompt = sendLanguageSelectionPrompt(verifyChannel);
-                await verifyChannel.send(langPrompt);
-
-                await interaction.editReply({
-                    content: `✅ Panneau de vérification et choix de langue déployés dans <#${verifyChannel.id}>.`
-                });
-            }
-
-            else if (commandName === 'logs') {
-                const targetChannel = interaction.options.getChannel('salon');
-                setGuildConfig(interaction.guild.id, 'logsChannelId', targetChannel.id);
-
-                const logSetupEmbed = new EmbedBuilder()
-                    .setTitle('⚙️ Configuration des Logs')
-                    .setDescription(`Le salon <#${targetChannel.id}> recevra désormais les logs du bot.`)
-                    .setColor('#5865F2')
-                    .setTimestamp();
-
-                await interaction.reply({
-                    embeds: [logSetupEmbed],
-                    flags: MessageFlags.Ephemeral
-                });
-
-                const testLog = new EmbedBuilder()
-                    .setTitle('📡 Logs Activés')
-                    .setDescription(`🟢 Salon de logs activé par **${interaction.user.tag}**.`)
-                    .setColor('#57F287')
-                    .setTimestamp();
-
-                await sendLog(interaction.guild, testLog);
             }
 
             else if (commandName === 'setup-channel') {
@@ -2096,7 +2309,6 @@ client.on('interactionCreate', async (interaction) => {
                     });
                 }
 
-                let isJoined = false;
                 if (gwData.participants.has(user.id)) {
                     gwData.participants.delete(user.id);
                     await interaction.reply({
@@ -2105,14 +2317,12 @@ client.on('interactionCreate', async (interaction) => {
                     });
                 } else {
                     gwData.participants.add(user.id);
-                    isJoined = true;
                     await interaction.reply({
                         content: '🎉 **Participation enregistrée / Entry registered !** Bonne chance / Good luck !',
                         flags: MessageFlags.Ephemeral
                     });
                 }
 
-                // Mise à jour synchrone du compteur sur les messages FR et EN
                 try {
                     const frChannel = guild.channels.cache.get(gwData.frChannelId);
                     if (frChannel) {
