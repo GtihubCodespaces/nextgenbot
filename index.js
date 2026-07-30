@@ -253,7 +253,7 @@ async function sendLog(guild, embed) {
     } catch (err) {}
 }
 
-// --- CATALOGUE DES SERVICES AVEC LOGOS OFFICIELS ---
+// --- CATALOGUE DES SERVICES AVEC LOGOS OFFICIELS PNG ---
 const services = [
     { id: 'paramount', label: 'Paramount+', emojiName: 'ng_paramount', defaultEmoji: '🎬', iconUrl: 'https://play-lh.googleusercontent.com/O5QHZxy2pkxwHrjU3Omd_1jdIYk_pZQexy2VVEDBDhaXgNhvZV7wjhfN_0kLUrQfCKFsaGbQbVm8usyrc-yBGhI', style: ButtonStyle.Secondary },
     { id: 'disney', label: 'Disney+', emojiName: 'ng_disney', defaultEmoji: '🏰', iconUrl: 'https://store-images.s-microsoft.com/image/apps.14187.14495311847124170.7646206e-bd82-4cf0-8b8c-d06a67bc302c.2e474878-acb7-4afb-a503-c2a1a32feaa8?h=210', style: ButtonStyle.Secondary },
@@ -264,25 +264,35 @@ const services = [
     { id: 'xbox', label: 'Xbox', emojiName: 'ng_xbox', defaultEmoji: '🟢', iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Xbox_one_logo.svg/500px-Xbox_one_logo.svg.png', style: ButtonStyle.Secondary },
     { id: 'nordvpn', label: 'NordVPN', emojiName: 'ng_nordvpn', defaultEmoji: '🛡️', iconUrl: 'https://img.icons8.com/color/512/nordvpn.png', style: ButtonStyle.Secondary },
     { id: 'hotmail', label: 'Hotmail', emojiName: 'ng_hotmail', defaultEmoji: '✉️', iconUrl: 'https://img.icons8.com/color/512/microsoft-outlook-2019.png', style: ButtonStyle.Secondary },
-    { id: 'expressvpn', label: 'ExpressVPN', emojiName: 'ng_expressvpn', defaultEmoji: '🚀', iconUrl: 'https://logosandtypes.com/wp-content/uploads/2025/03/ExpressVPN.png', style: ButtonStyle.Secondary },
+    { id: 'expressvpn', label: 'ExpressVPN', emojiName: 'ng_expressvpn', defaultEmoji: '🚀', iconUrl: 'https://cdn.iconscout.com/icon/free/png-256/free-expressvpn-3442898-2875376.png', style: ButtonStyle.Secondary },
     { id: 'mullvadvpn', label: 'MullvadVPN', emojiName: 'ng_mullvadvpn', defaultEmoji: '🔒', iconUrl: 'https://mullvad.net/press/MullvadVPN_logo_Round_RGB_Color_negative.png', style: ButtonStyle.Secondary }
 ];
 
 async function getOrFetchEmoji(guild, service) {
     if (!guild) return service.defaultEmoji;
 
+    const localAssetPath = path.join(__dirname, 'assets', `${service.id}.png`);
+    const hasLocalAsset = fs.existsSync(localAssetPath);
+    const attachmentTarget = hasLocalAsset ? localAssetPath : service.iconUrl;
+
     const existingEmoji = guild.emojis.cache.find(e => e.name === service.emojiName);
-    if (existingEmoji) return existingEmoji;
+
+    if (existingEmoji) {
+        return existingEmoji;
+    }
 
     try {
         if (guild.members.me?.permissions.has(PermissionFlagsBits.ManageEmojisAndStickers)) {
             const newEmoji = await guild.emojis.create({
-                attachment: service.iconUrl,
+                attachment: attachmentTarget,
                 name: service.emojiName
             });
+            console.log(`✅ Emoji custom uploadé avec succès sur le serveur : ${service.emojiName}`);
             return newEmoji;
         }
-    } catch (e) {}
+    } catch (e) {
+        console.error(`❌ Erreur création emoji ${service.emojiName} :`, e.message || e);
+    }
 
     return service.defaultEmoji;
 }
@@ -411,7 +421,7 @@ async function buildPanelEmbed(guild, lang = 'fr') {
     return { embed, bannerAttachment };
 }
 
-// --- GESTION ET CRÉATION DES RÔLES POUR LA SECURIATION ---
+// --- GESTION ET CRÉATION DES RÔLES POUR LA SÉCURISATION & MEMBRES ---
 async function getOrCreateSetupRoles(guild) {
     let notRegRole = guild.roles.cache.find(r => r.name === 'Not Registered');
     if (!notRegRole) {
@@ -429,7 +439,15 @@ async function getOrCreateSetupRoles(guild) {
     if (!enRole) {
         enRole = await guild.roles.create({ name: '🇬🇧 English', color: '#E74C3C', reason: 'Langue Système' }).catch(() => null);
     }
-    return { notRegRole, countryChoiceRole, frRole, enRole };
+    let frMemberRole = guild.roles.cache.find(r => r.name === 'Membre');
+    if (!frMemberRole) {
+        frMemberRole = await guild.roles.create({ name: 'Membre', color: '#2ECC71', reason: 'Rôle Membre FR' }).catch(() => null);
+    }
+    let enMemberRole = guild.roles.cache.find(r => r.name === 'Member');
+    if (!enMemberRole) {
+        enMemberRole = await guild.roles.create({ name: 'Member', color: '#1ABC9C', reason: 'Rôle Membre EN' }).catch(() => null);
+    }
+    return { notRegRole, countryChoiceRole, frRole, enRole, frMemberRole, enMemberRole };
 }
 
 function sendLanguageSelectionPrompt(channel) {
@@ -439,8 +457,8 @@ function sendLanguageSelectionPrompt(channel) {
             'Veuillez sélectionner votre langue / pays ci-dessous pour débloquer l\'accès à vos salons :',
             'Please select your country / language below to unlock your community channels:',
             '',
-            '🇫🇷 **Français** — Accéder à la communauté francophone',
-            '🇬🇧 **English** — Access the English community'
+            '🇫🇷 **Français** — Accéder à la communauté francophone & attribue le rôle `Membre`',
+            '🇬🇧 **English** — Access the English community & assigns the `Member` role'
         ].join('\n'))
         .setColor('#5865F2')
         .setTimestamp();
@@ -671,7 +689,6 @@ const server = http.createServer(async (req, res) => {
                             if (member) {
                                 const { notRegRole, countryChoiceRole } = await getOrCreateSetupRoles(guild);
 
-                                // GESTION DU FLUX DE SECURIATION EXIGÉE :
                                 // 1. Attribution du Rôle Verified & Country Choice
                                 await member.roles.add(VERIFIED_ROLE_ID).catch(() => {});
                                 if (countryChoiceRole) await member.roles.add(countryChoiceRole.id).catch(() => {});
@@ -856,7 +873,7 @@ async function cacheGuildInvites(guild) {
 const userCooldowns = new Map();
 const userDailyGens = new Map();
 
-// --- ENREGISTREMENT DES COMMANDES SLASH AVEC OPTIONS LANGUE ET SALON CIBLÉS ---
+// --- ENREGISTREMENT DES COMMANDES SLASH ---
 async function registerCommands() {
     const commands = [
         new SlashCommandBuilder()
@@ -877,6 +894,10 @@ async function registerCommands() {
                     .addChannelTypes(ChannelType.GuildText)
                     .setRequired(false)
             ),
+        new SlashCommandBuilder()
+            .setName('traduct-roles')
+            .setDescription('Duplique et traduit tous les rôles du serveur en version anglaise')
+            .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
         new SlashCommandBuilder()
             .setName('settings')
             .setDescription('Ouvre le panneau de configuration interactif (style DraftBot)')
@@ -1081,7 +1102,7 @@ client.once('clientReady', async () => {
     client.guilds.cache.forEach(guild => cacheGuildInvites(guild));
 });
 
-// Événement d'arrivée de membres: ATTRIBUTION AUTOMATIQUE DU RÔLE "Not Registered"
+// Événement d'arrivée de membres
 client.on('guildMemberAdd', async (member) => {
     const { guild } = member;
 
@@ -1282,13 +1303,87 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
 
+            // --- COMMANDE /traduct-roles ---
+            else if (commandName === 'traduct-roles') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                const guild = interaction.guild;
+                const roles = await guild.roles.fetch();
+
+                const dictionary = {
+                    'membre': 'Member',
+                    'membres': 'Members',
+                    'client': 'Customer',
+                    'clients': 'Customers',
+                    'client vip': 'VIP Customer',
+                    'vip': 'VIP',
+                    'partenaire': 'Partner',
+                    'partenaires': 'Partners',
+                    'banni': 'Banned',
+                    'booster': 'Booster',
+                    'boosters': 'Boosters',
+                    'administrateur': 'Administrator',
+                    'admin': 'Admin',
+                    'modérateur': 'Moderator',
+                    'mod': 'Mod',
+                    'assistant': 'Helper',
+                    'fondateur': 'Founder',
+                    'créateur': 'Creator',
+                    'développeur': 'Developer',
+                    'dev': 'Dev',
+                    'support': 'Support',
+                    'gagnant': 'Winner'
+                };
+
+                const createdRolesList = [];
+
+                for (const [id, role] of roles) {
+                    if (role.managed || role.id === guild.roles.everyone.id) continue;
+                    if (role.name === 'Not Registered' || role.name === 'Country Choice' || role.name === '🇫🇷 Français' || role.name === '🇬🇧 English') continue;
+
+                    const nameLower = role.name.toLowerCase().trim();
+                    let translatedName = dictionary[nameLower];
+
+                    if (!translatedName) {
+                        translatedName = `${role.name} (EN)`;
+                    }
+
+                    const existingEnRole = guild.roles.cache.find(r => r.name.toLowerCase() === translatedName.toLowerCase());
+                    if (existingEnRole) continue;
+
+                    try {
+                        const newRole = await guild.roles.create({
+                            name: translatedName,
+                            color: role.color,
+                            hoist: role.hoist,
+                            mentionable: role.mentionable,
+                            permissions: role.permissions,
+                            reason: `Traduction automatique de ${role.name}`
+                        });
+                        createdRolesList.push(`- **${role.name}** ➔ <@&${newRole.id}> (\`${newRole.name}\`)`);
+                    } catch (e) {
+                        console.error(`Erreur création rôle ${translatedName}:`, e);
+                    }
+                }
+
+                const resultEmbed = new EmbedBuilder()
+                    .setTitle('🌐 Traduction & Duplication des Rôles Effectuée !')
+                    .setDescription(createdRolesList.length > 0 
+                        ? `Les rôles du serveur ont été dupliqués et traduits en Anglais :\n\n${createdRolesList.join('\n')}`
+                        : '⚠️ Tous les rôles traduits existent déjà ou aucun rôle personnalisable n\'a été trouvé.')
+                    .setColor('#57F287')
+                    .setTimestamp();
+
+                await interaction.editReply({ embeds: [resultEmbed] });
+            }
+
             // --- COMMANDE /en-fr ---
             else if (commandName === 'en-fr') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const guild = interaction.guild;
                 const everyoneRole = guild.roles.everyone;
-                const { notRegRole, countryChoiceRole, frRole, enRole } = await getOrCreateSetupRoles(guild);
+                const { notRegRole, countryChoiceRole, frRole, enRole, frMemberRole, enMemberRole } = await getOrCreateSetupRoles(guild);
 
                 // 1. SUPPRESSION DE TOUS LES SALONS ET CATÉGORIES EXISTANTS
                 const existingChannels = await guild.channels.fetch();
@@ -1505,7 +1600,7 @@ client.on('interactionCreate', async (interaction) => {
                     createdSummary.push(`📁 **Category EN : ${catData.category}**\n${createdChannels.join('\n')}`);
                 }
 
-                // DEPLOIEMENT AUTOMATIQUE DES 2 PANELS DE GENERATION TRADUITS
+                // DEPLOIEMENT AUTOMATIQUE DES 2 PANELS DE GENERATION TRADUITS AVEC LES NOUVEAUX EMOJIS HD
                 const components = await buildServiceRows(guild);
 
                 if (frGenChannel) {
@@ -1525,12 +1620,12 @@ client.on('interactionCreate', async (interaction) => {
                 const setupEmbed = new EmbedBuilder()
                     .setTitle('🧹 Anciens Salons Supprimés & Systèmes de Rôles Déployés !')
                     .setDescription([
-                        'Le serveur a été entièrement réinitialisé avec le flux de sécurité complet :',
+                        'Le serveur a été entièrement réinitialisé avec le flux de sécurité complet et les nouveaux emojis HD :',
                         '',
-                        `🛡️ **Salon Verify :** <#${verifyChannel.id}> (Seul salon visible avec rôle \`Not Registered\`)`,
-                        `🌍 **Salon Country :** <#${countryChannel.id}> (Visible une fois vérifié avec rôle \`Country Choice\`)`,
-                        '🇫🇷 **Secteur Français :** Débloqué une fois le pays choisi (Rôle `🇫🇷 Français`)',
-                        '🇬🇧 **English Sector:** Unlocked once country chosen (Role `🇬🇧 English`)',
+                        `🛡️ **Salon Verify :** <#${verifyChannel.id}> (Rôle \`Not Registered\`)`,
+                        `🌍 **Salon Country :** <#${countryChannel.id}> (Rôle \`Country Choice\`)`,
+                        `🇫🇷 **Secteur Français :** (Rôle \`🇫🇷 Français\` + Rôle \`Membre\`)`,
+                        `🇬🇧 **English Sector:** (Role \`🇬🇧 English\` + Role \`Member\`)`,
                         '',
                         createdSummary.join('\n\n')
                     ].join('\n'))
@@ -2313,19 +2408,23 @@ client.on('interactionCreate', async (interaction) => {
         else if (interaction.isButton()) {
             const { customId, guild, user } = interaction;
 
-            // CHOIX DE PAYS / LANGUE (Français / English)
+            // CHOIX DE PAYS / LANGUE (Français / English) -> DUO ROLES (PAYS + MEMBRE)
             if (customId === 'lang_fr' || customId === 'lang_en') {
                 const isFr = customId === 'lang_fr';
-                const { countryChoiceRole, frRole, enRole } = await getOrCreateSetupRoles(guild);
+                const { countryChoiceRole, frRole, enRole, frMemberRole, enMemberRole } = await getOrCreateSetupRoles(guild);
                 const member = await guild.members.fetch(user.id).catch(() => null);
 
                 if (member) {
                     if (isFr) {
                         if (frRole) await member.roles.add(frRole.id).catch(() => {});
+                        if (frMemberRole) await member.roles.add(frMemberRole.id).catch(() => {});
                         if (enRole) await member.roles.remove(enRole.id).catch(() => {});
+                        if (enMemberRole) await member.roles.remove(enMemberRole.id).catch(() => {});
                     } else {
                         if (enRole) await member.roles.add(enRole.id).catch(() => {});
+                        if (enMemberRole) await member.roles.add(enMemberRole.id).catch(() => {});
                         if (frRole) await member.roles.remove(frRole.id).catch(() => {});
+                        if (frMemberRole) await member.roles.remove(frMemberRole.id).catch(() => {});
                     }
                     // Retrait du rôle Country Choice -> Le salon 🌍・country disparaît automatiquement !
                     if (countryChoiceRole) {
@@ -2335,8 +2434,8 @@ client.on('interactionCreate', async (interaction) => {
 
                 return interaction.reply({
                     content: isFr 
-                        ? '🇫🇷 **Vous avez sélectionné la France !** Vos accès aux salons FR sont débloqués et le salon country est désormais masqué.' 
-                        : '🇬🇧 **You selected English!** Your access to EN channels has been unlocked and the country channel is now hidden.',
+                        ? '🇫🇷 **Vous avez sélectionné la France !** Rôles `🇫🇷 Français` et `Membre` attribués. Accès aux salons FR débloqué.' 
+                        : '🇬🇧 **You selected English!** Roles `🇬🇧 English` and `Member` assigned. Access to EN channels unlocked.',
                     flags: MessageFlags.Ephemeral
                 });
             }
