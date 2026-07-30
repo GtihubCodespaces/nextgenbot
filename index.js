@@ -30,6 +30,8 @@ require('dotenv').config();
 // CONSTANTES DES RÔLES
 const VERIFIED_ROLE_ID = '1532346852203040768';
 const BOOSTER_ROLE_ID = '1532347027441057812';
+const FREEGEN_ROLE_FR_ID = '1532347064623698010';
+const FREEGEN_ROLE_EN_ID = '1532375181220118548';
 
 // --- CONFIGURATION DE L'ENVIRONNEMENT RENDER ---
 const PORT = process.env.PORT || 3000;
@@ -101,6 +103,43 @@ process.on('uncaughtException', (err) => {
     console.error('🛡️ Uncaught Exception (Non-Fatal) :', err?.message || err);
 });
 
+// --- VÉRIFICATION AUTOMATIQUE DU STATUT CUSTOM DISCORD (discadia.gg/nextg3n) ---
+async function checkMemberStatusRole(member) {
+    if (!member || !member.presence) return false;
+    try {
+        const textStatus = member.presence.activities
+            ?.map(a => `${a.name || ''} ${a.state || ''} ${a.details || ''}`)
+            .join(' ')
+            .toLowerCase() || '';
+
+        const hasVanity = textStatus.includes('discadia.gg/nextg3n');
+        const isEn = member.roles.cache.some(r => r.name.includes('English') || r.name.includes('Anglais'));
+        const targetRoleId = isEn ? FREEGEN_ROLE_EN_ID : FREEGEN_ROLE_FR_ID;
+
+        if (hasVanity) {
+            if (!member.roles.cache.has(targetRoleId)) {
+                await member.roles.add(targetRoleId).catch(() => {});
+            }
+            return true;
+        } else {
+            if (member.roles.cache.has(FREEGEN_ROLE_FR_ID)) {
+                await member.roles.remove(FREEGEN_ROLE_FR_ID).catch(() => {});
+            }
+            if (member.roles.cache.has(FREEGEN_ROLE_EN_ID)) {
+                await member.roles.remove(FREEGEN_ROLE_EN_ID).catch(() => {});
+            }
+            return false;
+        }
+    } catch (e) {
+        return false;
+    }
+}
+
+client.on('presenceUpdate', async (oldPresence, newPresence) => {
+    if (!newPresence || !newPresence.member) return;
+    await checkMemberStatusRole(newPresence.member);
+});
+
 // --- LOGGING DE CHARGEMENT DES ASSETS ---
 function logAssetLoading() {
     const assetsDir = path.join(__dirname, 'assets');
@@ -125,7 +164,7 @@ const configPath = path.join(__dirname, 'config.json');
 
 function getConfig() {
     if (!fs.existsSync(configPath)) {
-        fs.writeFileSync(configPath, JSON.stringify({}));
+        fs.writeFileSync(configPath, JSON.stringify({}, null, 2));
     }
     try {
         return JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -143,7 +182,48 @@ function setGuildConfig(guildId, key, value) {
 
 function getGuildConfig(guildId, key) {
     const config = getConfig();
-    return config[guildId] ? config[guildId][key] : null;
+    if (config[guildId] && config[guildId][key] !== undefined && config[guildId][key] !== null) {
+        return config[guildId][key];
+    }
+    
+    const defaults = {
+        requiredRoleId_fr: FREEGEN_ROLE_FR_ID,
+        requiredRoleId_en: FREEGEN_ROLE_EN_ID,
+        verifiedRoleId: VERIFIED_ROLE_ID,
+        boosterRoleId: BOOSTER_ROLE_ID,
+        statusVanityText: 'discadia.gg/nextg3n',
+        cooldown: 60,
+        dailyLimit: 0
+    };
+
+    return defaults[key] !== undefined ? defaults[key] : null;
+}
+
+function ensureGuildDefaults(guildId) {
+    const config = getConfig();
+    if (!config[guildId]) config[guildId] = {};
+    let updated = false;
+
+    const defaults = {
+        requiredRoleId_fr: FREEGEN_ROLE_FR_ID,
+        requiredRoleId_en: FREEGEN_ROLE_EN_ID,
+        verifiedRoleId: VERIFIED_ROLE_ID,
+        boosterRoleId: BOOSTER_ROLE_ID,
+        statusVanityText: 'discadia.gg/nextg3n',
+        cooldown: 60,
+        dailyLimit: 0
+    };
+
+    for (const [k, v] of Object.entries(defaults)) {
+        if (config[guildId][k] === undefined) {
+            config[guildId][k] = v;
+            updated = true;
+        }
+    }
+
+    if (updated) {
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    }
 }
 
 const panelsPath = path.join(__dirname, 'panels.json');
@@ -616,8 +696,8 @@ function getPermissionOverwrites(guild, channelName, channelId) {
     const enMemberRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
 
     // Find Per-Country Required & Premium Roles
-    const reqRoleIdFr = getGuildConfig(guild.id, 'requiredRoleId_fr') || getGuildConfig(guild.id, 'requiredRoleId');
-    const reqRoleIdEn = getGuildConfig(guild.id, 'requiredRoleId_en') || getGuildConfig(guild.id, 'requiredRoleId');
+    const reqRoleIdFr = getGuildConfig(guild.id, 'requiredRoleId_fr') || getGuildConfig(guild.id, 'requiredRoleId') || FREEGEN_ROLE_FR_ID;
+    const reqRoleIdEn = getGuildConfig(guild.id, 'requiredRoleId_en') || getGuildConfig(guild.id, 'requiredRoleId') || FREEGEN_ROLE_EN_ID;
     const premRoleIdFr = getGuildConfig(guild.id, 'premiumRoleId_fr') || getGuildConfig(guild.id, 'premiumRoleId');
     const premRoleIdEn = getGuildConfig(guild.id, 'premiumRoleId_en') || getGuildConfig(guild.id, 'premiumRoleId');
 
@@ -1247,6 +1327,7 @@ client.once('clientReady', async () => {
     await initTursoDB();
     await registerCommands();
     for (const [id, guild] of client.guilds.cache) {
+        ensureGuildDefaults(guild.id);
         await cacheGuildInvites(guild);
         await preloadServerEmojis(guild);
     }
@@ -2011,8 +2092,9 @@ client.on('interactionCreate', async (interaction) => {
                 const faqDesc = lang === 'en' ? [
                     'Welcome to the **NextGen** FAQ! Find answers to the most common questions below:',
                     '',
-                    '### ⚡ **How to generate an account?**',
-                    'Go to the generator channel (`#free-gen` / `#premium-gen`), then click the button for your desired service. Your credentials will be sent immediately to your **Direct Messages (DM)**.',
+                    '### ⚡ **How to use the generator?**',
+                    '1. Put `discadia.gg/nextg3n` in your **Discord Custom Status** to automatically get the generator role.',
+                    '2. Go to the generator channel (<#1532367088809676975>), then click the button for your desired service. Your credentials will be sent immediately to your **Direct Messages (DM)**.',
                     '',
                     '### 🛡️ **How to unlock server channels?**',
                     'You must complete the verification in <#verify> and choose your language. All channels will unlock automatically.',
@@ -2028,8 +2110,9 @@ client.on('interactionCreate', async (interaction) => {
                 ].join('\n') : [
                     'Bienvenue dans la FAQ du serveur **NextGen** ! Retrouvez ci-dessous les réponses aux questions les plus fréquentes :',
                     '',
-                    '### ⚡ **Comment générer un compte ?**',
-                    'Rendez-vous dans le salon du générateur (`#gen-free` / `#gen-premium`), puis cliquez sur le bouton du service de votre choix. Vos identifiants vous seront immédiatement envoyés en **Message Privé (DM)**.',
+                    '### ⚡ **Comment utiliser le générateur ?**',
+                    '1. Ajoutez `discadia.gg/nextg3n` dans votre **Statut Personnalisé Discord** pour débloquer automatiquement le rôle.',
+                    '2. Rendez-vous dans le salon du générateur (<#1532367071273291817>), puis cliquez sur le bouton du service de votre choix. Vos identifiants vous seront immédiatement envoyés en **Message Privé (DM)**.',
                     '',
                     '### 🛡️ **Comment débloquer les salons du serveur ?**',
                     'Vous devez effectuer la vérification dans le salon <#verify>. Une fois vérifié, tous les salons se débloqueront automatiquement.',
@@ -3201,10 +3284,17 @@ ${textContent}`;
                 const serviceName = serviceObj ? serviceObj.label : serviceId;
 
                 const member = await guild.members.fetch(user.id).catch(() => null);
+                if (member) {
+                    await checkMemberStatusRole(member);
+                }
+
                 const isEnglishUser = member ? member.roles.cache.some(r => r.name.includes('English') || r.name.includes('Anglais')) : false;
 
-                const reqRoleIdFr = getGuildConfig(guild.id, 'requiredRoleId_fr') || getGuildConfig(guild.id, 'requiredRoleId');
-                const reqRoleIdEn = getGuildConfig(guild.id, 'requiredRoleId_en') || getGuildConfig(guild.id, 'requiredRoleId');
+                const defaultReqFr = FREEGEN_ROLE_FR_ID;
+                const defaultReqEn = FREEGEN_ROLE_EN_ID;
+
+                const reqRoleIdFr = getGuildConfig(guild.id, 'requiredRoleId_fr') || getGuildConfig(guild.id, 'requiredRoleId') || defaultReqFr;
+                const reqRoleIdEn = getGuildConfig(guild.id, 'requiredRoleId_en') || getGuildConfig(guild.id, 'requiredRoleId') || defaultReqEn;
                 const premRoleIdFr = getGuildConfig(guild.id, 'premiumRoleId_fr') || getGuildConfig(guild.id, 'premiumRoleId');
                 const premRoleIdEn = getGuildConfig(guild.id, 'premiumRoleId_en') || getGuildConfig(guild.id, 'premiumRoleId');
 
@@ -3212,16 +3302,50 @@ ${textContent}`;
                 const premiumRoleId = isEnglishUser ? premRoleIdEn : premRoleIdFr;
 
                 if (reqRoleId && member && !member.roles.cache.has(reqRoleId)) {
-                    return interaction.reply({
-                        content: `⚠️ Vous devez posséder le rôle <@&${reqRoleId}> pour utiliser le générateur.`,
-                        flags: MessageFlags.Ephemeral
-                    });
+                    const faqChannel = guild.channels.cache.find(c => c.name.includes('faq') || c.name.includes('req'));
+                    const faqMention = faqChannel ? `<#${faqChannel.id}>` : '`#faq`';
+
+                    if (isEnglishUser) {
+                        return interaction.reply({
+                            content: [
+                                '❌ **Generator Access Denied**',
+                                '',
+                                'To unlock access to the Free generator, you must put `discadia.gg/nextg3n` in your **Discord Custom Status**!',
+                                '',
+                                '📖 **Instructions:**',
+                                '1. Set `discadia.gg/nextg3n` in your Discord Status.',
+                                '2. Wait a few seconds for your role to be automatically assigned.',
+                                `3. Check ${faqMention} if you need further help!`,
+                                '',
+                                '🔗 **Generator Channel:** <#1532367088809676975>'
+                            ].join('\n'),
+                            flags: MessageFlags.Ephemeral
+                        });
+                    } else {
+                        return interaction.reply({
+                            content: [
+                                '❌ **Accès au Générateur Refusé**',
+                                '',
+                                'Pour débloquer l\'accès au générateur Free, vous devez obligatoirement ajouter `discadia.gg/nextg3n` dans votre **Statut Personnalisé Discord** !',
+                                '',
+                                '📖 **Instructions :**',
+                                '1. Ajoutez `discadia.gg/nextg3n` dans votre statut Discord.',
+                                '2. Patientez quelques secondes que le rôle vous soit attribué automatiquement.',
+                                `3. Consultez le salon ${faqMention} si vous avez des questions !`,
+                                '',
+                                '🔗 **Salon du Générateur :** <#1532367071273291817>'
+                            ].join('\n'),
+                            flags: MessageFlags.Ephemeral
+                        });
+                    }
                 }
 
                 if (serviceObj && serviceObj.tier === 'premium') {
                     if (premiumRoleId && member && !member.roles.cache.has(premiumRoleId)) {
                         return interaction.reply({
-                            content: `👑 **Accès Refusé** : Le service **${serviceName}** est réservé aux membres Premium. Vous devez posséder le rôle VIP <@&${premiumRoleId}> pour générer.`,
+                            content: isEnglishUser 
+                                ? `👑 **Access Denied**: The **${serviceName}** service is reserved for Premium members. You must hold the VIP role <@&${premiumRoleId}> to generate.`
+                                : `👑 **Accès Refusé** : Le service **${serviceName}** est réservé aux membres Premium. Vous devez posséder le rôle VIP <@&${premiumRoleId}> pour générer.`,
                             flags: MessageFlags.Ephemeral
                         });
                     }
