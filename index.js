@@ -99,6 +99,25 @@ process.on('uncaughtException', (err) => {
     console.error('🛡️ Uncaught Exception (Non-Fatal) :', err?.message || err);
 });
 
+// --- LOGGING DE CHARGEMENT DES ASSETS ---
+function logAssetLoading() {
+    const assetsDir = path.join(__dirname, 'assets');
+    console.log('----------------------------------------------------');
+    console.log('📂 [ASSETS SYSTEM] Vérification des fichiers d\'assets locaux...');
+    if (!fs.existsSync(assetsDir)) {
+        console.log('⚠️ [ASSETS SYSTEM] Le dossier ./assets/ n\'existe pas encore.');
+        console.log('----------------------------------------------------');
+        return;
+    }
+    const files = fs.readdirSync(assetsDir).filter(f => f.endsWith('.png'));
+    console.log(`✅ [ASSETS SYSTEM] ${files.length} fichier(s) d'icônes PNG HD chargés depuis ./assets/ :`);
+    files.forEach(f => {
+        const stat = fs.statSync(path.join(assetsDir, f));
+        console.log(`   └─ 🖼️ ${f} (${Math.round(stat.size / 1024)} Ko)`);
+    });
+    console.log('----------------------------------------------------');
+}
+
 // --- GESTION DE LA CONFIGURATION PERSISTANTE ---
 const configPath = path.join(__dirname, 'config.json');
 
@@ -267,6 +286,40 @@ const services = [
     { id: 'expressvpn', label: 'ExpressVPN', emojiName: 'ng_expressvpn', defaultEmoji: '🚀', iconUrl: 'https://cdn.iconscout.com/icon/free/png-256/free-expressvpn-3442898-2875376.png', style: ButtonStyle.Secondary },
     { id: 'mullvadvpn', label: 'MullvadVPN', emojiName: 'ng_mullvadvpn', defaultEmoji: '🔒', iconUrl: 'https://mullvad.net/press/MullvadVPN_logo_Round_RGB_Color_negative.png', style: ButtonStyle.Secondary }
 ];
+
+// --- IMPORTATION ET SYNC AUTOMATIQUE DE TOUS LES EMOJIS SUR LE SERVEUR ---
+async function preloadServerEmojis(guild) {
+    if (!guild) return;
+    if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageEmojisAndStickers)) {
+        console.log(`⚠️ [EMOJI IMPORTER] Le bot n'a pas la permission ManageEmojisAndStickers sur "${guild.name}".`);
+        return;
+    }
+
+    console.log(`🎨 [EMOJI IMPORTER] Importation et synchronisation des emojis HD sur "${guild.name}"...`);
+    await guild.emojis.fetch().catch(() => {});
+
+    for (const service of services) {
+        const localAssetPath = path.join(__dirname, 'assets', `${service.id}.png`);
+        const hasLocalAsset = fs.existsSync(localAssetPath);
+        const attachmentTarget = hasLocalAsset ? localAssetPath : service.iconUrl;
+
+        const existingEmoji = guild.emojis.cache.find(e => e.name === service.emojiName);
+
+        if (!existingEmoji) {
+            try {
+                const newEmoji = await guild.emojis.create({
+                    attachment: attachmentTarget,
+                    name: service.emojiName
+                });
+                console.log(`   └─ ✅ Created emoji <:${newEmoji.name}:${newEmoji.id}> for ${service.label}`);
+            } catch (e) {
+                console.error(`   └─ ❌ Error creating emoji ${service.emojiName}:`, e.message || e);
+            }
+        } else {
+            console.log(`   └─ ℹ️ Emoji <:${existingEmoji.name}:${existingEmoji.id}> for ${service.label} already present.`);
+        }
+    }
+}
 
 async function getOrFetchEmoji(guild, service) {
     if (!guild) return service.defaultEmoji;
@@ -1101,9 +1154,13 @@ async function registerCommands() {
 
 client.once('clientReady', async () => {
     console.log(`🤖 Bot connecté en tant que ${client.user.tag}`);
+    logAssetLoading();
     await initTursoDB();
     await registerCommands();
-    client.guilds.cache.forEach(guild => cacheGuildInvites(guild));
+    for (const [id, guild] of client.guilds.cache) {
+        await cacheGuildInvites(guild);
+        await preloadServerEmojis(guild);
+    }
 });
 
 // Événement d'arrivée de membres
@@ -1352,7 +1409,7 @@ client.on('interactionCreate', async (interaction) => {
                         '',
                         createdStaff.join('\n'),
                         '',
-                        '*🔒 Ces salons sont strictement réservés à l\'équipe du staff et invisibles aux membres classiques.*'
+                        '*🔒 Ces salons sont strictly réservés à l\'équipe du staff et invisibles aux membres classiques.*'
                     ].join('\n'))
                     .setColor('#5865F2')
                     .setTimestamp();
